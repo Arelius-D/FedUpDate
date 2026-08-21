@@ -1,0 +1,63 @@
+# ==============================================================================
+# FedUpDate - Git Ignore Rules
+# ==============================================================================
+
+# Runtime Logs and User Data
+data/logs/
+data/backups/
+data/browser_profile/
+data/gui_profile/
+data/webview_data/
+data/last_scan.json
+data/state_ledger.json
+*.log
+*.bak
+
+# User configuration - generated on first run from Get-FedDefaultConfig
+# (core/Config.ps1). Never commit: it would override the code's defaults
+# with whatever settings happen to be on the developer's machine.
+data/config.json
+
+# Build Artifacts & Binaries
+# Compiled output only. gui/bin/build.ps1 is source and MUST ship: it is the
+# script that compiles the GUI on the user's machine during installation.
+# A bare 'bin/' rule must never be used here - it would match gui/bin/ and
+# silently exclude that compiler script.
+gui/bin/*.exe
+gui/bin/*.pdb
+gui/bin/*.WebView2/
+obj/
+*.exe.WebView2/
+
+# WebView2 SDK libraries - restored at build time from the official
+# Microsoft.Web.WebView2 NuGet package, never committed.
+gui/lib/
+gui/bin/*.dll
+
+# Internal development audit reports and tooling
+audit/
+
+# Retired files kept locally for reference only
+archive/
+
+# Release packaging output
+dist/
+release/
+
+# IDE & Editor Directories
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Windows System Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS / Linux Metadata
+.DS_Store
+._*

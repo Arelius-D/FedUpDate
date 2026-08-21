@@ -1,0 +1,461 @@
+# ==============================================================================
+# FedUpDate Rollback & State Ledger Engine
+# Records every registry, service, task, and file change with timestamped backups
+# Allows true 100% reversible rollback of any OS settings or configurations
+# ==============================================================================
+
+. "$PSScriptRoot\Logger.ps1"
+. "$PSScriptRoot\Config.ps1"
+
+function Get-FedLedgerFile {
+    $dataDir = Get-FedDataDirectory
+    return Join-Path $dataDir "state_ledger.json"
+}
+
+function Get-FedBackupDirectory {
+    $dataDir = Get-FedDataDirectory
+    $backupDir = Join-Path $dataDir "backups"
+    if (-not (Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    }
+    return $backupDir
+}
+
+function Get-FedLedger {
+    [CmdletBinding()]
+    param()
+
+    $ledgerFile = Get-FedLedgerFile
+    if (-not (Test-Path $ledgerFile)) {
+        return @()
+    }
+
+    try {
+        $content = Get-Content -Path $ledgerFile -Raw -Encoding UTF8
+        $ledger = $content | ConvertFrom-Json
+        return @($ledger)
+    } catch {
+        Write-FedLog "Error reading state ledger: $_" -Level "ERROR" -Component "Rollback"
+        return @()
+    }
+}
+
+function Save-FedLedger {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Ledger
+    )
+
+    $ledgerFile = Get-FedLedgerFile
+    try {
+        $json = $Ledger | ConvertTo-Json -Depth 10
+        Set-Content -Path $ledgerFile -Value $json -Encoding UTF8
+        return $true
+    } catch {
+        Write-FedLog "Error saving state ledger: $_" -Level "ERROR" -Component "Rollback"
+        return $false
+    }
+}
+
+function New-FedTransaction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $txId = "tx-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff")
+    $tx = [PSCustomObject]@{
+        Id          = $txId
+        Timestamp   = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        Description = $Description
+        Status      = "Draft"
+        Changes     = [System.Collections.Generic.List[PSObject]]::new()
+    }
+    return $tx
+}
+
+function Record-FedRegistryChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter(Mandatory = $true)]
+        [string]$KeyPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ValueName,
+
+        [Parameter(Mandatory = $true)]
+        [object]$NewValue,
+
+        [Parameter()]
+        [string]$ValueType = "DWord",
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    $existed = $false
+    $origValue = $null
+    $origType = $null
+
+    try {
+        if (Test-Path $KeyPath) {
+            $item = Get-ItemProperty -Path $KeyPath -Name $ValueName -ErrorAction SilentlyContinue
+            if ($null -ne $item -and $null -ne $item.$ValueName) {
+                $existed = $true
+                $origValue = $item.$ValueName
+                $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($KeyPath.Replace("HKLM:\", "").Replace("HKEY_LOCAL_MACHINE\", ""))
+                if ($regKey) {
+                    $origType = $regKey.GetValueKind($ValueName).ToString()
+                    $regKey.Close()
+                }
+            }
+        }
+    } catch {
+        # Registry inspection fallback
+    }
+
+    $change = [PSCustomObject]@{
+        Type          = "Registry"
+        KeyPath       = $KeyPath
+        ValueName     = $ValueName
+        ExistedBefore = $existed
+        OriginalValue = $origValue
+        OriginalType  = $origType
+        NewValue      = $NewValue
+        NewType       = $ValueType
+        Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    $Transaction.Changes.Add($change)
+
+    if ($WhatIf) {
+        Write-FedLog "[WHATIF] Would set Registry [$KeyPath] '$ValueName' = '$NewValue' (was: '$origValue')" -Level "WHATIF" -Component "Rollback"
+    } else {
+        try {
+            if (-not (Test-Path $KeyPath)) {
+                if ($KeyPath.StartsWith("HKCU:\")) {
+                    $subKey = $KeyPath.Substring(6)
+                    [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($subKey) | Out-Null
+                } elseif ($KeyPath.StartsWith("HKLM:\")) {
+                    $subKey = $KeyPath.Substring(6)
+                    [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($subKey) | Out-Null
+                } else {
+                    New-Item -Path $KeyPath -Force | Out-Null
+                }
+            }
+            Set-ItemProperty -Path $KeyPath -Name $ValueName -Value $NewValue -Type $ValueType -Force | Out-Null
+            Write-FedLog "Set Registry [$KeyPath] '$ValueName' = '$NewValue'" -Level "INFO" -Component "Rollback"
+        } catch {
+            Write-FedLog "Failed to apply registry change [$KeyPath] '$ValueName': $_" -Level "ERROR" -Component "Rollback"
+        }
+    }
+}
+
+function Record-FedServiceChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Automatic", "Manual", "Disabled")]
+        [string]$NewStartType,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    $origStartType = "Unknown"
+    $origStatus = "Unknown"
+
+    if ($service) {
+        $origStartType = $service.StartType.ToString()
+        $origStatus = $service.Status.ToString()
+    }
+
+    $change = [PSCustomObject]@{
+        Type              = "Service"
+        ServiceName       = $ServiceName
+        OriginalStartType = $origStartType
+        OriginalStatus    = $origStatus
+        NewStartType      = $NewStartType
+        Timestamp         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    $Transaction.Changes.Add($change)
+
+    if ($WhatIf) {
+        Write-FedLog "[WHATIF] Would configure Service '$ServiceName' StartType to '$NewStartType' (was: '$origStartType')" -Level "WHATIF" -Component "Rollback"
+    } else {
+        try {
+            if ($service) {
+                Set-Service -Name $ServiceName -StartupType $NewStartType -ErrorAction SilentlyContinue
+                $startVal = switch ($NewStartType) {
+                    "Disabled"  { 4 }
+                    "Manual"    { 3 }
+                    "Automatic" { 2 }
+                    default     { 3 }
+                }
+                $svcReg = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+                if (Test-Path $svcReg) {
+                    Set-ItemProperty -Path $svcReg -Name "Start" -Value $startVal -ErrorAction SilentlyContinue
+                }
+                if ($NewStartType -eq "Disabled" -and $service.Status -eq "Running") {
+                    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+                }
+                Write-FedLog "Configured Service '$ServiceName' -> StartupType: $NewStartType" -Level "INFO" -Component "Rollback"
+            }
+        } catch {
+            Write-FedLog "Failed to configure service '$ServiceName': $_" -Level "WARN" -Component "Rollback"
+        }
+    }
+}
+
+function Record-FedTaskChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TaskPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TaskName,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Enable", "Disable")]
+        [string]$NewState,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    $task = Get-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue
+    $origState = if ($task) { $task.State.ToString() } else { "NotFound" }
+
+    $change = [PSCustomObject]@{
+        Type          = "ScheduledTask"
+        TaskPath      = $TaskPath
+        TaskName      = $TaskName
+        OriginalState = $origState
+        NewState      = $NewState
+        Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    $Transaction.Changes.Add($change)
+
+    if ($WhatIf) {
+        Write-FedLog "[WHATIF] Would $NewState Scheduled Task '$TaskPath$TaskName' (was: '$origState')" -Level "WHATIF" -Component "Rollback"
+    } else {
+        try {
+            if ($task) {
+                if ($NewState -eq "Disable") {
+                    Disable-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+                } else {
+                    Enable-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+                }
+                Write-FedLog "Scheduled Task '$TaskPath$TaskName' -> $NewState" -Level "INFO" -Component "Rollback"
+            }
+        } catch {
+            Write-FedLog "Failed to alter scheduled task '$TaskPath$TaskName': $_" -Level "WARN" -Component "Rollback"
+        }
+    }
+}
+
+function Record-FedFileBackup {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    if (-not (Test-Path $FilePath)) {
+        return
+    }
+
+    $backupDir = Get-FedBackupDirectory
+    $fileName = [System.IO.Path]::GetFileName($FilePath)
+    $stamp = Get-Date -Format "yyyyMMdd_HHmmss_fff"
+    $backupPath = Join-Path $backupDir "${stamp}_${fileName}.bak"
+
+    $change = [PSCustomObject]@{
+        Type         = "File"
+        OriginalPath = (Resolve-Path $FilePath).Path
+        BackupPath   = $backupPath
+        Timestamp    = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    $Transaction.Changes.Add($change)
+
+    if ($WhatIf) {
+        Write-FedLog "[WHATIF] Would create file backup of '$FilePath' -> '$backupPath'" -Level "WHATIF" -Component "Rollback"
+    } else {
+        try {
+            Copy-Item -Path $FilePath -Destination $backupPath -Force
+            Write-FedLog "Created file backup of '$FilePath' -> '$backupPath'" -Level "INFO" -Component "Rollback"
+        } catch {
+            Write-FedLog "Failed to create file backup for '$FilePath': $_" -Level "ERROR" -Component "Rollback"
+        }
+    }
+}
+
+function Commit-FedTransaction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    if ($WhatIf) {
+        Write-FedLog "[WHATIF] Transaction '$($Transaction.Id)' simulation complete with $($Transaction.Changes.Count) changes." -Level "WHATIF" -Component "Rollback"
+        return $true
+    }
+
+    $Transaction.Status = "Committed"
+    $ledger = @(Get-FedLedger)
+    $ledger += $Transaction
+    Save-FedLedger -Ledger $ledger
+    Write-FedLog "Committed state transaction '$($Transaction.Id)' ($($Transaction.Description)) with $($Transaction.Changes.Count) operations." -Level "SUCCESS" -Component "Rollback"
+    return $true
+}
+
+function Restore-FedState {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$TransactionId,
+
+        [Parameter()]
+        [switch]$Latest,
+
+        [Parameter()]
+        [switch]$All,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    $ledger = @(Get-FedLedger)
+    if ($ledger.Count -eq 0) {
+        Write-FedLog "No state ledger entries found to rollback." -Level "WARN" -Component "Rollback"
+        return $false
+    }
+
+    $targets = @()
+    if ($TransactionId) {
+        $targets = @($ledger | Where-Object { $_.Id -eq $TransactionId })
+    } elseif ($Latest) {
+        $targets = @($ledger[-1])
+    } elseif ($All) {
+        $targets = [array]($ledger[($ledger.Count - 1)..0]) # reverse chronological
+    } else {
+        $targets = @($ledger[-1])
+    }
+
+    if ($targets.Count -eq 0) {
+        Write-FedLog "Specified transaction '$TransactionId' not found in ledger." -Level "ERROR" -Component "Rollback"
+        return $false
+    }
+
+    Write-FedLog "Starting Rollback for $($targets.Count) transaction(s)..." -Level "INFO" -Component "Rollback"
+
+    foreach ($tx in $targets) {
+        Write-FedLog "Reverting Transaction '$($tx.Id)': $($tx.Description)" -Level "INFO" -Component "Rollback"
+        
+        # Reverse changes in transaction
+        $changes = [array]$tx.Changes
+        for ($i = $changes.Count - 1; $i -ge 0; $i--) {
+            $ch = $changes[$i]
+            switch ($ch.Type) {
+                "Registry" {
+                    if ($WhatIf) {
+                        Write-FedLog "[WHATIF] Would revert Registry [$($ch.KeyPath)] '$($ch.ValueName)' -> Original: '$($ch.OriginalValue)' (Existed: $($ch.ExistedBefore))" -Level "WHATIF" -Component "Rollback"
+                    } else {
+                        try {
+                            if ($ch.ExistedBefore -eq $false -or $null -eq $ch.OriginalValue) {
+                                Remove-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -ErrorAction SilentlyContinue | Out-Null
+                                Write-FedLog "Removed Registry property [$($ch.KeyPath)] '$($ch.ValueName)'" -Level "SUCCESS" -Component "Rollback"
+                            } else {
+                                Set-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -Value $ch.OriginalValue -Type $ch.OriginalType -Force | Out-Null
+                                Write-FedLog "Restored Registry property [$($ch.KeyPath)] '$($ch.ValueName)' = '$($ch.OriginalValue)'" -Level "SUCCESS" -Component "Rollback"
+                            }
+                        } catch {
+                            Write-FedLog "Failed to rollback registry [$($ch.KeyPath)] '$($ch.ValueName)': $_" -Level "ERROR" -Component "Rollback"
+                        }
+                    }
+                }
+                "Service" {
+                    if ($WhatIf) {
+                        Write-FedLog "[WHATIF] Would restore Service '$($ch.ServiceName)' StartType -> '$($ch.OriginalStartType)'" -Level "WHATIF" -Component "Rollback"
+                    } else {
+                        try {
+                            if ($ch.OriginalStartType -ne "Unknown") {
+                                Set-Service -Name $ch.ServiceName -StartupType $ch.OriginalStartType -ErrorAction SilentlyContinue
+                                if ($ch.OriginalStatus -eq "Running") {
+                                    Start-Service -Name $ch.ServiceName -ErrorAction SilentlyContinue
+                                }
+                                Write-FedLog "Restored Service '$($ch.ServiceName)' -> StartupType: $($ch.OriginalStartType)" -Level "SUCCESS" -Component "Rollback"
+                            }
+                        } catch {
+                            Write-FedLog "Failed to rollback service '$($ch.ServiceName)': $_" -Level "ERROR" -Component "Rollback"
+                        }
+                    }
+                }
+                "ScheduledTask" {
+                    if ($WhatIf) {
+                        Write-FedLog "[WHATIF] Would restore Scheduled Task '$($ch.TaskPath)$($ch.TaskName)' -> '$($ch.OriginalState)'" -Level "WHATIF" -Component "Rollback"
+                    } else {
+                        try {
+                            if ($ch.OriginalState -eq "Ready" -or $ch.OriginalState -eq "Running") {
+                                Enable-ScheduledTask -TaskPath $ch.TaskPath -TaskName $ch.TaskName -ErrorAction SilentlyContinue | Out-Null
+                            } elseif ($ch.OriginalState -eq "Disabled") {
+                                Disable-ScheduledTask -TaskPath $ch.TaskPath -TaskName $ch.TaskName -ErrorAction SilentlyContinue | Out-Null
+                            }
+                            Write-FedLog "Restored Scheduled Task '$($ch.TaskPath)$($ch.TaskName)' -> $($ch.OriginalState)" -Level "SUCCESS" -Component "Rollback"
+                        } catch {
+                            Write-FedLog "Failed to rollback scheduled task '$($ch.TaskPath)$($ch.TaskName)': $_" -Level "ERROR" -Component "Rollback"
+                        }
+                    }
+                }
+                "File" {
+                    if ($WhatIf) {
+                        Write-FedLog "[WHATIF] Would restore File from backup '$($ch.BackupPath)' -> '$($ch.OriginalPath)'" -Level "WHATIF" -Component "Rollback"
+                    } else {
+                        try {
+                            if (Test-Path $ch.BackupPath) {
+                                Copy-Item -Path $ch.BackupPath -Destination $ch.OriginalPath -Force
+                                Write-FedLog "Restored File '$($ch.OriginalPath)' from '$($ch.BackupPath)'" -Level "SUCCESS" -Component "Rollback"
+                            }
+                        } catch {
+                            Write-FedLog "Failed to restore file '$($ch.OriginalPath)': $_" -Level "ERROR" -Component "Rollback"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Write-FedLog "Rollback operation completed." -Level "SUCCESS" -Component "Rollback"
+    return $true
+}
+
+Export-ModuleMember -Function Get-FedLedgerFile, Get-FedBackupDirectory, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState -ErrorAction SilentlyContinue

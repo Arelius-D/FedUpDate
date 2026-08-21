@@ -1,0 +1,10 @@
+# FedUpDate targets Windows only. Normalise to CRLF in the working tree and in
+# generated source archives, so the .cmd and .vbs launchers behave correctly
+# when the installer downloads and extracts the source on a user's machine.
+* text=auto eol=crlf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.ico binary
+*.dll binary
+*.exe binary

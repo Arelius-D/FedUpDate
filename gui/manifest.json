@@ -1,0 +1,9 @@
+{
+  "name": "FedUpDate",
+  "short_name": "FedUpDate",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "theme_color": "#141622",
+  "background_color": "#141622"
+}

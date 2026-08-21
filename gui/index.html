@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" id="themeColorMetaLight" media="(prefers-color-scheme: light)" content="#f8fafc">
+  <meta name="theme-color" id="themeColorMetaDark" media="(prefers-color-scheme: dark)" content="#141622">
+  <meta name="theme-color" id="themeColorMeta" content="#141622">
+  <meta name="color-scheme" id="colorSchemeMeta" content="light dark">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/assets/fedupdate-icon.png">
+  <title>FedUpDate - Unified Windows Update & Anti-Tamper Suite</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Segoe+UI+Variable+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="window-shell">
+    <!-- Custom 48px Extended Header Bar -->
+    <header class="titlebar" id="appTitleBar">
+      <div class="titlebar-left">
+        <div class="brand-badge">
+          <div class="brand-icon-glow">
+            <img src="/assets/fedupdate-icon.png" class="brand-icon" alt="FedUpDate Logo" width="22" height="22">
+          </div>
+          <span class="brand-title">FedUpDate</span>
+          <span class="badge-pill badge-version">v0.1.0-beta</span>
+        </div>
+      </div>
+
+      <!-- Drag Space -->
+      <div class="titlebar-spacer"></div>
+
+      <div class="titlebar-right">
+        <!-- Notification Center -->
+        <div class="notif-wrapper" id="notifWrapper">
+          <button class="icon-btn notif-bell-btn" id="notifBellBtn" title="Notification Center">
+            <svg class="fluent-icon" viewBox="0 0 20 20">
+              <path d="M10 2a4 4 0 0 0-4 4v3.28l-.78 1.56A1 1 0 0 0 6.1 12.5h7.8a1 1 0 0 0 .89-1.66L14 9.28V6a4 4 0 0 0-4-4Zm-2 11.5a2 2 0 0 0 4 0H8Z"/>
+            </svg>
+            <span class="notif-badge-dot hidden" id="notifBadgeDot"></span>
+          </button>
+
+          <!-- Notification Flyout Dropdown -->
+          <div class="notif-flyout hidden" id="notifFlyout">
+            <div class="notif-flyout-header">
+              <div class="notif-flyout-title-group">
+                <span class="notif-flyout-title">Notifications</span>
+                <span class="badge-pill badge-info" id="notifFlyoutBadge">0</span>
+              </div>
+              <button class="notif-clear-btn" id="notifDismissAllBtn" title="Dismiss all">Clear</button>
+            </div>
+            <div class="notif-flyout-list" id="notifFlyoutList">
+              <div class="notif-empty" id="notifEmptyState">
+                <svg class="fluent-icon notif-empty-icon" viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm3.7 6.3-4.5 4.5a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4l1.3 1.3 3.8-3.8a1 1 0 1 1 1.4 1.4Z"/></svg>
+                <span>All systems optimal. No pending alerts.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Action Buttons -->
+        <button class="icon-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme">
+          <svg class="fluent-icon" id="themeIcon" viewBox="0 0 20 20"><path d="M7.5 2a.75.75 0 0 1 .74.65 6.5 6.5 0 0 0 9.11 9.11.75.75 0 0 1 .9 1A8 8 0 1 1 6.75 2.25.75.75 0 0 1 7.5 2Z"/></svg>
+        </button>
+        <!-- In-App Fluent Caption Controls -->
+        <div class="window-caption-controls">
+          <button class="caption-btn" id="winMinBtn" title="Minimize">
+            <svg class="caption-icon" viewBox="0 0 10 10"><path d="M1 5h8v1H1z"/></svg>
+          </button>
+          <button class="caption-btn" id="winMaxBtn" title="Maximize">
+            <svg class="caption-icon" viewBox="0 0 10 10"><path d="M1 1h8v8H1V1zm1 1v6h6V2H2z"/></svg>
+          </button>
+          <button class="caption-btn caption-close-btn" id="winCloseBtn" title="Close">
+            <svg class="caption-icon" viewBox="0 0 10 10"><path d="M0.85 0.15a.5.5 0 0 0-.7.7L4.3 5 .15 9.15a.5.5 0 1 0 .7.7L5 5.7l4.15 4.15a.5.5 0 0 0 .7-.7L5.7 5l4.15-4.15a.5.5 0 0 0-.7-.7L5 4.3.85.15z"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Application Body -->
+    <div class="app-body">
+      <!-- Navigation Rail -->
+      <nav class="nav-rail" id="navRail">
+        <div class="nav-group">
+          <button class="nav-toggle-btn" id="navToggleBtn" title="Toggle Navigation">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M2.5 5.5a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Zm0 4.5a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Zm0 4.5a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Z"/></svg>
+            <span class="nav-label" id="navToggleLabel">Collapse</span>
+          </button>
+          <button class="nav-item active" data-page="dashboard" title="Unified Dashboard">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h3A1.5 1.5 0 0 1 9 4.5v3A1.5 1.5 0 0 1 7.5 9h-3A1.5 1.5 0 0 1 3 7.5v-3Zm8 0A1.5 1.5 0 0 1 12.5 3h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 11 7.5v-3ZM3 12.5A1.5 1.5 0 0 1 4.5 11h3A1.5 1.5 0 0 1 9 12.5v3A1.5 1.5 0 0 1 7.5 17h-3A1.5 1.5 0 0 1 3 15.5v-3Zm8 0a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3a1.5 1.5 0 0 1-1.5-1.5v-3Z"/></svg>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button class="nav-item" data-page="osupdates" title="Windows OS Updates">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.902-1.801"/></svg>
+            <span class="nav-label">Windows Updates</span>
+          </button>
+          <button class="nav-item" data-page="packages" title="WinGet Packages">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M9.47 2.2a1 1 0 0 1 1.06 0l6.5 4A1 1 0 0 1 17.5 7v6a1 1 0 0 1-.47.85l-6.5 4a1 1 0 0 1-1.06 0l-6.5-4A1 1 0 0 1 2.5 13V7a1 1 0 0 1 .47-.85l6.5-4ZM10 3.78 4.77 7 10 10.22 15.23 7 10 3.78ZM3.5 8.16v4.68l6 3.69v-4.68l-6-3.69Zm13 0-6 3.69v4.68l6-3.69V8.16Z"/></svg>
+            <span class="nav-label">WinGet Packages</span>
+          </button>
+          <button class="nav-item" data-page="store" title="Microsoft Store Apps">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M21.9 4.86c-.1-.36-.43-.61-.8-.61H18V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v1.25H2.9a.83.83 0 0 0-.8.61L.03 12.26A2 2 0 0 0 2 14.75V21a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-6.25a2 2 0 0 0 1.97-2.49l-2.07-7.4zM8 4h8v.25H8V4zm12 16H4v-5.5h16V20zm1.74-7.85A1 1 0 0 1 20 13H4a1 1 0 0 1-1.74-.85L4.1 6.25h15.8l1.84 5.9z"/></svg>
+            <span class="nav-label">Store Apps</span>
+          </button>
+          <button class="nav-item" data-page="watchdog" title="Anti-Tamper Shield">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .4.11l6.25 3.75A.75.75 0 0 1 17 6.5v4.5c0 4.14-2.8 7.37-6.72 8.44a.75.75 0 0 1-.56 0C5.8 18.37 3 15.14 3 11V6.5a.75.75 0 0 1 .35-.64l6.25-3.75A.75.75 0 0 1 10 2Zm0 1.59L4.5 6.89V11c0 3.39 2.22 6.09 5.5 7 3.28-.91 5.5-3.61 5.5-7V6.89L10 3.59ZM9.25 6.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 6.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>
+            <span class="nav-label">Shield</span>
+          </button>
+          <button class="nav-item" data-page="scheduler" title="Task Automation">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M6.5 2a.75.75 0 0 1 .75.75V4h5.5V2.75a.75.75 0 0 1 1.5 0V4h1.25A2.5 2.5 0 0 1 18 6.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 15.5v-9A2.5 2.5 0 0 1 4.5 4H5.75V2.75A.75.75 0 0 1 6.5 2Zm-2 3.5A1 1 0 0 0 3.5 6.5V8h13V6.5a1 1 0 0 0-1-1h-11ZM16.5 9.5h-13v6a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-6Z"/></svg>
+            <span class="nav-label">Scheduler</span>
+          </button>
+          <button class="nav-item" data-page="rollback" title="State Rollback & Ledger">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M4.5 10a5.5 5.5 0 1 1 1.61 3.89.75.75 0 1 0-1.06 1.06A7 7 0 1 0 3 10V7.75a.75.75 0 0 0-1.5 0v3.5c0 .41.34.75.75.75h3.5a.75.75 0 0 0 0-1.5H3.59A5.47 5.47 0 0 1 4.5 10Zm5-3a.75.75 0 0 0-.75.75v2.5c0 .41.34.75.75.75h2.5a.75.75 0 0 0 0-1.5h-1.75V7.75A.75.75 0 0 0 9.5 7Z"/></svg>
+            <span class="nav-label">Rollback</span>
+          </button>
+          <button class="nav-item" data-page="logs" title="Live Terminal Logs">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15.5v-11ZM4.5 4a.5.5 0 0 0-.5.5v11c0 .28.22.5.5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11Zm2.15 4.35a.5.5 0 0 1 .7 0l2 2a.5.5 0 0 1 0 .7l-2 2a.5.5 0 0 1-.7-.7L8.29 11 6.65 9.35a.5.5 0 0 1 0-.7Zm4.1 4.4a.5.5 0 0 1 .5-.5h2.5a.5.5 0 0 1 0 1h-2.5a.5.5 0 0 1-.5-.5Z"/></svg>
+            <span class="nav-label">Logs</span>
+          </button>
+        </div>
+        <div class="nav-group nav-bottom">
+          <button class="nav-item" data-page="settings" title="Settings">
+            <svg class="nav-icon" viewBox="0 0 20 20"><path d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 0 1-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 0 1 .947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 0 1 2.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 0 1 2.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 0 1 .947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 0 1-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 0 1-2.287-.947ZM10 13a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg>
+            <span class="nav-label">Settings</span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- Main Content Viewport -->
+      <main class="content-viewport" id="contentViewport">
+        <!-- PAGE 1: DASHBOARD -->
+        <section class="page active" id="page-dashboard">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Unified System Overview</h1>
+              <p class="page-subtitle">Orchestrating Windows Update, WinGet, and Microsoft Store with zero corporate fragmentation.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="dashboardScanBtn">
+              <svg class="btn-icon" viewBox="0 0 20 20"><path d="M9 3.5a5.5 5.5 0 1 0 3.48 9.77l3.62 3.63a.75.75 0 1 0 1.06-1.06l-3.63-3.62A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z"/></svg>
+              Scan System
+            </button>
+              <button class="btn btn-secondary" id="whatIfBtn">
+                <svg class="btn-icon" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 0 7 7 7.01 7.01 0 0 0-7-7Zm0 12.5A5.5 5.5 0 1 1 15.5 10 5.51 5.51 0 0 1 10 15.5Zm-1-8.5h2v4.5h-2Zm0 6h2v2h-2Z"/></svg>
+                WhatIf Simulation
+              </button>
+              <button class="btn btn-primary btn-hero" id="runSuperUpdateBtn">
+                <svg class="btn-icon" viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .75.75v1.25a6 6 0 0 1 5.25 5.25H17.25a.75.75 0 0 1 0 1.5H16a6 6 0 0 1-5.25 5.25v1.25a.75.75 0 0 1-1.5 0v-1.25A6 6 0 0 1 4 10.75H2.75a.75.75 0 0 1 0-1.5H4a6 6 0 0 1 5.25-5.25V2.75A.75.75 0 0 1 10 2Zm0 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+                Update All
+              </button>
+            </div>
+          </div>
+
+          <!-- 3 Engine Status Rings Grid -->
+          <div class="rings-grid">
+            <!-- Card 1: OS & Defender Updates -->
+            <div class="ring-card ring-os" id="ringCardOS">
+              <div class="ring-header">
+                <div class="ring-icon-box ring-icon-os">
+                  <svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451H0m10.949-9.451L24 12.6V24l-13.051-1.8z"/></svg>
+                </div>
+                <div class="ring-info">
+                  <h3 class="ring-name">Windows OS & Defender</h3>
+                  <span class="badge-pill badge-info" id="osBadge">0 KBs Pending</span>
+                </div>
+              </div>
+              <div class="ring-body">
+                <div class="ring-metric-row">
+                  <span class="metric-label">Servicing Stack</span>
+                  <span class="metric-val" id="osServicingStatus">Active & Ready</span>
+                </div>
+                <div class="ring-metric-row">
+                  <span class="metric-label">Defender Definitions</span>
+                  <span class="metric-val" id="defenderStatus">Up-to-Date</span>
+                </div>
+              </div>
+              <div class="ring-footer">
+                <div class="ring-actions-row">
+                  <button class="btn btn-primary btn-sm" id="btnUpdateOSDirect">Update OS</button>
+                  <button class="btn btn-secondary btn-sm" onclick="window.navigateTo('osupdates')">View Details</button>
+                </div>
+                <label class="engine-check-label">
+                  <input type="checkbox" id="checkIncludeOS" checked> Include in Update All
+                </label>
+              </div>
+            </div>
+
+            <!-- Card 2: WinGet Applications -->
+            <div class="ring-card ring-winget" id="ringCardWinget">
+              <div class="ring-header">
+                <div class="ring-icon-box ring-icon-winget">
+                  <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+                </div>
+                <div class="ring-info">
+                  <h3 class="ring-name">WinGet Packages</h3>
+                  <span class="badge-pill badge-purple" id="wingetBadge">0 Apps Outdated</span>
+                </div>
+              </div>
+              <div class="ring-body">
+                <div class="ring-metric-row">
+                  <span class="metric-label">Package Manager</span>
+                  <span class="metric-val" id="wingetEngineStatus">Online</span>
+                </div>
+                <div class="ring-metric-row">
+                  <span class="metric-label">Pinned / Excluded</span>
+                  <span class="metric-val" id="wingetExcludedCount">2 Skipped</span>
+                </div>
+              </div>
+              <div class="ring-footer">
+                <div class="ring-actions-row">
+                  <button class="btn btn-primary btn-sm" id="btnUpdateWingetDirect">Update Packages</button>
+                  <button class="btn btn-secondary btn-sm" onclick="window.navigateTo('packages')">Manage Packages</button>
+                </div>
+                <label class="engine-check-label">
+                  <input type="checkbox" id="checkIncludeWinget" checked> Include in Update All
+                </label>
+              </div>
+            </div>
+
+            <!-- Card 3: Microsoft Store Apps -->
+            <div class="ring-card ring-store" id="ringCardStore">
+              <div class="ring-header">
+                <div class="ring-icon-box ring-icon-store">
+                  <svg viewBox="0 0 24 24"><path fill="currentColor" d="M21.9 4.86c-.1-.36-.43-.61-.8-.61H18V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v1.25H2.9a.83.83 0 0 0-.8.61L.03 12.26A2 2 0 0 0 2 14.75V21a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-6.25a2 2 0 0 0 1.97-2.49l-2.07-7.4zM8 4h8v.25H8V4zm12 16H4v-5.5h16V20zm1.74-7.85A1 1 0 0 1 20 13H4a1 1 0 0 1-1.74-.85L4.1 6.25h15.8l1.84 5.9z"/></svg>
+                </div>
+                <div class="ring-info">
+                  <h3 class="ring-name">Microsoft Store MDM</h3>
+                  <span class="badge-pill badge-green" id="storeBadge">Sync Ready</span>
+                </div>
+              </div>
+              <div class="ring-body">
+                <div class="ring-metric-row">
+                  <span class="metric-label">Sync Protocol</span>
+                  <span class="metric-val">CIM / MDM Bridge</span>
+                </div>
+                <div class="ring-metric-row">
+                  <span class="metric-label">Background Queue</span>
+                  <span class="metric-val" id="storeQueueStatus">Clean</span>
+                </div>
+              </div>
+              <div class="ring-footer">
+                <div class="ring-actions-row">
+                  <button class="btn btn-primary btn-sm" id="btnSyncStoreDirect">Sync Store</button>
+                  <button class="btn btn-secondary btn-sm" onclick="window.navigateTo('store')">View Store</button>
+                </div>
+                <label class="engine-check-label">
+                  <input type="checkbox" id="checkIncludeStore" checked> Include in Update All
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Overview Settings Cards -->
+          <div class="settings-section">
+            <h2 class="section-title">Smart Reboot & Post-Execution Policy</h2>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 3a7 7 0 0 0-7 7v.5H1.5a.5.5 0 0 0-.35.85l2.5 2.5a.5.5 0 0 0 .7 0l2.5-2.5a.5.5 0 0 0-.35-.85H5V10a5 5 0 1 1 5 5 .75.75 0 0 0 0 1.5 6.5 6.5 0 1 0-6.5-6.5h1.5A7 7 0 1 0 10 3Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Reboot Enforcement Policy</div>
+                <div class="card-desc">Control whether updates prompt, postpone, or schedule restarts after updating.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-recommended">Recommended</span>
+                <select class="fluent-select" id="rebootPolicySelect">
+                  <option value="Notify" selected>Notify Only (Never auto-reboot)</option>
+                  <option value="Never">Strict Never Reboot</option>
+                  <option value="Schedule">Schedule at Quiet Hours (03:00)</option>
+                  <option value="Prompt">Interactive Prompt</option>
+                  <option value="Force">Force Immediate Restart</option>
+                  <option value="Shutdown">Update &amp; Shut Down</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .4.11l6.25 3.75A.75.75 0 0 1 17 6.5v4.5c0 4.14-2.8 7.37-6.72 8.44a.75.75 0 0 1-.56 0C5.8 18.37 3 15.14 3 11V6.5a.75.75 0 0 1 .35-.64l6.25-3.75A.75.75 0 0 1 10 2Zm0 1.59L4.5 6.89V11c0 3.39 2.22 6.09 5.5 7 3.28-.91 5.5-3.61 5.5-7V6.89L10 3.59Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Anti-Tamper Watchdog Shield</div>
+                <div class="card-desc">Automatically prevent Windows from silently re-enabling auto-update hijacking tasks on boot.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-recommended">Active</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="watchdogToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 2: WINDOWS OS UPDATES -->
+        <section class="page" id="page-osupdates">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Windows Operating System &amp; Defender</h1>
+              <p class="page-subtitle">Native Windows Update Session inspecting Cumulative KBs, Defender Intelligence definitions, and Servicing Stack.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="rescanOSUpdatesBtn">
+                <svg class="btn-icon" viewBox="0 0 20 20"><path d="M10 3a7 7 0 0 0-6.14 3.63L3 5.75A.75.75 0 0 0 2.25 5a.75.75 0 0 0-.75.75v3.5c0 .41.34.75.75.75h3.5a.75.75 0 0 0 0-1.5H4.18A5.5 5.5 0 1 1 4.5 10a.75.75 0 0 0-1.5 0 7 7 0 1 0 7-7Z"/></svg>
+                Scan OS Updates
+              </button>
+              <button class="btn btn-primary" id="installAllOSUpdatesBtn">
+                Install All OS Updates
+              </button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="packages-table">
+              <thead>
+                <tr>
+                  <th>Update Title</th>
+                  <th>KB Number</th>
+                  <th>Classification</th>
+                  <th>Download Size</th>
+                  <th>Reboot Impact</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="osUpdatesTableBody">
+                <tr class="placeholder-row">
+                  <td colspan="6">Windows is fully up-to-date! No pending OS or Defender updates.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- PAGE 3: PACKAGES -->
+        <section class="page" id="page-packages">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">WinGet Application Packages</h1>
+              <p class="page-subtitle">Granularly select, pin, or upgrade individual software packages.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="rescanPackagesBtn">
+                <svg class="btn-icon" viewBox="0 0 20 20"><path d="M10 3a7 7 0 0 0-6.14 3.63L3 5.75A.75.75 0 0 0 2.25 5a.75.75 0 0 0-.75.75v3.5c0 .41.34.75.75.75h3.5a.75.75 0 0 0 0-1.5H4.18A5.5 5.5 0 1 1 4.5 10a.75.75 0 0 0-1.5 0 7 7 0 1 0 7-7Z"/></svg>
+                Scan Updates
+              </button>
+              <button class="btn btn-primary" id="updateSelectedPackagesBtn">
+                Upgrade Selected
+              </button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <div class="table-toolbar">
+              <input type="text" class="search-input" id="packageSearchInput" placeholder="Filter packages by name, ID, or source...">
+              <button class="btn btn-secondary btn-sm" id="selectAllPackagesBtn">Select All</button>
+            </div>
+            <table class="packages-table">
+              <thead>
+                <tr>
+                  <th class="col-check"><input type="checkbox" id="masterPackageCheck" checked></th>
+                  <th>Application Name</th>
+                  <th>Package ID</th>
+                  <th>Current Version</th>
+                  <th>Available Version</th>
+                  <th>Source</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="packagesTableBody">
+                <tr class="placeholder-row">
+                  <td colspan="7">Scanning WinGet packages...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- PAGE 4: MICROSOFT STORE -->
+        <section class="page" id="page-store">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Microsoft Store Applications</h1>
+              <p class="page-subtitle">Manage modern Store apps, background sync queues, and MDM Enterprise Bridge orchestration.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-primary" id="triggerStoreSyncBtn">
+                <svg class="btn-icon" viewBox="0 0 20 20"><path d="M7.5 4a4.5 4.5 0 0 0-4.47 4.03A3.5 3.5 0 0 0 3.5 15h13a3.5 3.5 0 0 0 .5-6.96A4.5 4.5 0 0 0 12.5 4H7.5Zm1.72 4.22a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1-1.06 1.06L10 10.06V13a.75.75 0 0 1-1.5 0v-2.94l-1.22 1.22a.75.75 0 0 1-1.06-1.06l2-2Z"/></svg>
+                Sync Store Updates
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-card">
+              <div class="card-icon-box ring-icon-store">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M21.9 4.86c-.1-.36-.43-.61-.8-.61H18V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v1.25H2.9a.83.83 0 0 0-.8.61L.03 12.26A2 2 0 0 0 2 14.75V21a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-6.25a2 2 0 0 0 1.97-2.49l-2.07-7.4zM8 4h8v.25H8V4zm12 16H4v-5.5h16V20zm1.74-7.85A1 1 0 0 1 20 13H4a1 1 0 0 1-1.74-.85L4.1 6.25h15.8l1.84 5.9z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Microsoft Store Modernization Engine</div>
+                <div class="card-desc">CIM / MDM Bridge status for installed Store packages.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-green" id="storePageBadge">Installed &amp; Ready</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm0 3.5a1 1 0 1 1-1 1 1 1 0 0 1 1-1Zm1.25 8.75h-2.5a.75.75 0 0 1 0-1.5h.5V9.5h-.5a.75.75 0 0 1 0-1.5h1.75a.75.75 0 0 1 .75.75v4h.5a.75.75 0 0 1 0 1.5Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Installed Store Client Version</div>
+                <div class="card-desc">Local Windows Package Manager / Microsoft Store Client Appx version.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-info" id="storeVersionText">v22606.1401.13.0</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 3: ANTI-TAMPER SHIELD -->
+        <section class="page" id="page-watchdog">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Anti-Tamper & Policy Watchdog</h1>
+              <p class="page-subtitle">Lock down invasive Windows background update mechanisms and maintain desired state.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="auditWatchdogBtn">Run Audit</button>
+              <button class="btn btn-primary" id="enforceWatchdogBtn">Enforce Shield State</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm-3.5 8a3.5 3.5 0 0 1 5.95-2.47l.55-.53v2.25h-2.25l.7-.68a2 2 0 0 0-3.45 1.43.75.75 0 0 1-1.5 0Zm7 0a3.5 3.5 0 0 1-5.95 2.47l-.55.53v-2.25h2.25l-.7.68a2 2 0 0 0 3.45-1.43.75.75 0 0 1 1.5 0Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Windows Update Service (wuauserv)</div>
+                <div class="card-desc">Disable automatic background polling to eliminate random lag and mid-game bandwidth spikes.</div>
+              </div>
+              <div class="card-actions">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="toggleWuService" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M7.5 4a4.5 4.5 0 0 0-4.47 4.03A3.5 3.5 0 0 0 3.5 15h13a3.5 3.5 0 0 0 .5-6.96A4.5 4.5 0 0 0 12.5 4H7.5Zm2.5 4a.75.75 0 0 1 .75.75v3.19l1.22-1.22a.75.75 0 1 1 1.06 1.06l-2.5 2.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 1 1 1.06-1.06l1.22 1.22V8.75A.75.75 0 0 1 10 8Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Delivery Optimization (DoSvc)</div>
+                <div class="card-desc">Disable peer-to-peer Windows update seeding and background upload traffic.</div>
+              </div>
+              <div class="card-actions">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="toggleDoSvc" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M6 3.5A1.5 1.5 0 0 1 7.5 2h5A1.5 1.5 0 0 1 14 3.5v13a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 6 16.5v-13Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Update Orchestrator Scheduled Tasks</div>
+                <div class="card-desc">Suppress scheduled background scans and policy reports that wake your PC during sleep.</div>
+              </div>
+              <div class="card-actions">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="toggleOrchestrator" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .4.11l6.25 3.75A.75.75 0 0 1 17 6.5v4.5c0 4.14-2.8 7.37-6.72 8.44a.75.75 0 0 1-.56 0C5.8 18.37 3 15.14 3 11V6.5a.75.75 0 0 1 .35-.64l6.25-3.75A.75.75 0 0 1 10 2Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Enforce Desired State on Boot (Persistence Task)</div>
+                <div class="card-desc">Automatically verifies and re-applies your rules on every startup, even after major Windows patches.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-recommended">Recommended</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="toggleBootEnforce" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 4: SCHEDULER -->
+        <section class="page" id="page-scheduler">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Task Scheduler Automation</h1>
+              <p class="page-subtitle">Schedule unattended unified update runs without interruptions during work hours.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-primary" id="saveSchedulerBtn">Save Schedule</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm-1.5 5.5a.5.5 0 0 1 .78-.42l4.5 3a.5.5 0 0 1 0 .84l-4.5 3A.5.5 0 0 1 8.5 13.5v-6Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Automated Scheduled Updates</div>
+                <div class="card-desc">Enable background execution of unified updates via Windows Task Scheduler.</div>
+              </div>
+              <div class="card-actions">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="schedulerEnabledToggle">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M6.5 2a.75.75 0 0 1 .75.75V4h5.5V2.75a.75.75 0 0 1 1.5 0V4h1.25A2.5 2.5 0 0 1 18 6.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 15.5v-9A2.5 2.5 0 0 1 4.5 4H5.75V2.75A.75.75 0 0 1 6.5 2Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Frequency &amp; Recurrence</div>
+                <div class="card-desc">Choose how often unified updates should run automatically.</div>
+              </div>
+              <div class="card-actions">
+                <select class="fluent-select" id="schedFrequencySelect">
+                  <option value="Daily" selected>Daily</option>
+                  <option value="Weekly">Weekly (Sundays)</option>
+                  <option value="OnIdle">On System Idle</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm0 14.5A6.5 6.5 0 1 1 16.5 10 6.51 6.51 0 0 1 10 16.5ZM10 5a.75.75 0 0 0-.75.75v4.5c0 .41.34.75.75.75h3.5a.75.75 0 0 0 0-1.5H10.75V5.75A.75.75 0 0 0 10 5Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Execution Time</div>
+                <div class="card-desc">Scheduled time for update runs (e.g. 02:00 AM).</div>
+              </div>
+              <div class="card-actions">
+                <input type="time" class="fluent-input" id="schedTimeInput" value="02:00">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 5: ROLLBACK & STATE LEDGER -->
+        <section class="page" id="page-rollback">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">State Ledger &amp; 1-Click Rollback</h1>
+              <p class="page-subtitle">Every registry change, service reconfiguration, and task modification is snapshotted for instant reversion.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="whatifRollbackBtn">WhatIf Rollback</button>
+              <button class="btn btn-danger" id="rollbackLatestBtn">Rollback Most Recent</button>
+            </div>
+          </div>
+
+          <div class="ledger-container">
+            <div class="timeline" id="ledgerTimeline">
+              <div class="placeholder-card">Loading transaction history...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 6: LIVE LOGS -->
+        <section class="page" id="page-logs">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Live Terminal Stream &amp; Logs</h1>
+              <p class="page-subtitle">Real-time structured logs from the underlying PowerShell update engine.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="clearLogsBtn">Clear View</button>
+              <button class="btn btn-secondary" id="exportLogsBtn">Export Logs</button>
+            </div>
+          </div>
+
+          <div class="terminal-container">
+            <div class="terminal-toolbar">
+              <div class="terminal-titlebar">
+                <span class="term-dot red"></span>
+                <span class="term-dot yellow"></span>
+                <span class="term-dot green"></span>
+                <span class="term-title">fedupdate.engine.stream - pwsh</span>
+              </div>
+              <select class="fluent-select-sm" id="logFilterSelect">
+                <option value="ALL">All Levels</option>
+                <option value="INFO">Info</option>
+                <option value="SUCCESS">Success</option>
+                <option value="WARN">Warnings</option>
+                <option value="ERROR">Errors</option>
+                <option value="WHATIF">WhatIf</option>
+              </select>
+            </div>
+            <pre class="terminal-body" id="terminalLogsBody"></pre>
+          </div>
+        </section>
+
+        <!-- PAGE 7: SETTINGS -->
+        <section class="page" id="page-settings">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Application Preferences</h1>
+              <p class="page-subtitle">Customize application behavior, theme, and exclusions.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="resetDefaultsBtn">Reset Defaults</button>
+              <button class="btn btn-primary" id="savePreferencesBtn">Save Preferences</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8.01 8.01 0 0 0-8-8Zm0 1.5a6.5 6.5 0 1 1-6.5 6.5 6.51 6.51 0 0 1 6.5-6.5Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Theme &amp; Visual Materials</div>
+                <div class="card-desc">Choose between Windows Mica dark, light, or system themes.</div>
+              </div>
+              <div class="card-actions">
+                <select class="fluent-select" id="themeSelect">
+                  <option value="Dark">Dark Mode (Mica Glass)</option>
+                  <option value="Light">Light Mode</option>
+                  <option value="System">System Default</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5v2.09a1.5 1.5 0 0 1-.44 1.06L12 12.2v4.05a1.5 1.5 0 0 1-.66 1.24l-2 1.33A.75.75 0 0 1 8 18.2v-6L3.44 7.65A1.5 1.5 0 0 1 3 6.59V4.5Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">WinGet Exclusions (Skip List)</div>
+                <div class="card-desc">Comma-separated Package IDs to exclude from automated upgrades.</div>
+              </div>
+              <div class="card-actions exclusions-box">
+                <input type="text" class="fluent-input" id="exclusionsInput" value="Microsoft.Edge, Microsoft.OneDrive">
+              </div>
+            </div>
+
+            <!-- Danger Zone Uninstaller -->
+            <div class="settings-card settings-card-danger">
+              <div class="card-icon-box danger-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M8.5 4h3a1.5 1.5 0 0 0-3 0Zm-2 1.5H3.75a.75.75 0 0 1 0-1.5h12.5a.75.75 0 0 1 0 1.5h-2.75v9.5A2.5 2.5 0 0 1 11 17.5H9A2.5 2.5 0 0 1 6.5 15v-9.5Zm1.5 0v9.5c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-9.5h-4Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title danger-text">Complete Clean Uninstallation</div>
+                <div class="card-desc">Remove all shortcuts, PATH entries, and profile hooks with options to restore Windows defaults and preserve backups.</div>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-danger btn-sm" id="uninstallModalOpenBtn">Uninstall FedUpDate</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Uninstall Modal Dialog -->
+        <div class="modal-overlay hidden" id="uninstallModal">
+          <div class="modal-card">
+            <h2 class="modal-title">Uninstall FedUpDate</h2>
+            <p class="modal-subtitle">You are about to remove FedUpDate from your system.</p>
+            <div class="modal-options">
+              <label class="modal-checkbox-label">
+                <input type="checkbox" id="uninstRestoreOSCheck" checked>
+                <span><strong>Restore Windows Defaults</strong> (Re-enables default update services & removes scheduled tasks)</span>
+              </label>
+              <label class="modal-checkbox-label">
+                <input type="checkbox" id="uninstKeepBackupsCheck" checked>
+                <span><strong>Preserve Backups & Logs</strong> (Saves state ledger & .bak snapshots to Documents\FedUpDate-Backups)</span>
+              </label>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" id="uninstCancelBtn">Cancel</button>
+              <button class="btn btn-danger" id="uninstConfirmBtn">Confirm & Uninstall</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Bottom Task Progress Dock -->
+        <div class="task-progress-dock dock-idle" id="taskProgressDock">
+          <div class="dock-content">
+            <div class="dock-header">
+              <div class="dock-task-name" id="dockTaskName">Ready</div>
+              <div class="dock-terminal-preview" id="dockTerminalPreview">
+                <span class="dock-term-prompt">$</span>
+                <span class="dock-term-text" id="dockTerminalLine">Engine idle. Click 'Update All' to begin.</span>
+              </div>
+              <button class="btn btn-secondary btn-sm hidden" id="dockCancelBtn">Cancel</button>
+            </div>
+            <div class="dock-status-row">
+              <span class="dock-queue-status" id="dockQueueStatus">All engines synchronized</span>
+            </div>
+            <div class="dock-progress-bar-wrap">
+              <div class="dock-progress-bar" id="dockProgressBar"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
