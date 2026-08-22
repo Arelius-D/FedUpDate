@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1-beta] - 2026-08-22
+
+### Fixed
+
+- **Shortcut Creation on Redirected User Folders (`install.ps1`)**:
+  - Start Menu and Desktop locations are resolved through the Windows special-folder API rather than assumed to sit under `%USERPROFILE%`. Where OneDrive Known Folder Move has redirected the Desktop, the literal path does not exist and shortcut creation failed.
+  - Each shortcut is created independently, so a failure on one no longer prevents the other from being written.
+  - Uninstall resolves the same locations, so redirected shortcuts are removed cleanly.
+- **Shortcut Target (`install.ps1`)**:
+  - Start Menu and Desktop shortcuts launch `gui/bin/FedUpDate.UI.exe` directly, so they open the frameless application window and take their icon from the executable's embedded resource. They previously ran the VBS launcher, which serves the interface through Edge in app mode: that window carries a native title bar above the in-app one, and the shortcut icon came from `wscript.exe`.
+  - The VBS launcher remains the fallback when the GUI has not been compiled, with the application icon set explicitly.
+
+### Changed
+
+- **Uninstall Prompt Defaults (`install.ps1`)**:
+  - Both questions accept Enter. Restoring Windows Update services and settings defaults to yes, shown as `[Y/n]`; keeping backup snapshots and logs defaults to no, shown as `[y/N]`.
+  - Unrecognised input re-asks instead of falling through to a branch that was not chosen.
+  - A non-interactive uninstall now restores Windows Update defaults as well, so an unattended removal cannot leave update services disabled.
+
+---
+
 ## [0.3.0-beta] - 2026-08-21
 
 ### Added
@@ -55,17 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed the `-DryRun` switch and its `simulate` alias. `-WhatIf` is the one simulation flag, matching PowerShell convention and the engine layer, which already used `-WhatIf` exclusively.
   - The TUI menu, the GUI action button, and the log-level filter now read WhatIf rather than mixing both names.
   - The `WHATIF` log level and the `whatif` field in the local GUI API are unchanged, so simulation output and the GUI request contract behave exactly as before.
-- **Shortcut Creation on Redirected User Folders (`install.ps1`)**:
-  - Start Menu and Desktop locations are resolved through the Windows special-folder API rather than assumed to sit under `%USERPROFILE%`. Where OneDrive Known Folder Move has redirected the Desktop, the literal path does not exist and shortcut creation failed.
-  - Each shortcut is created independently, so a failure on one no longer prevents the other from being written.
-  - Uninstall resolves the same locations, so redirected shortcuts are removed cleanly.
-- **Shortcut Target (`install.ps1`)**:
-  - Start Menu and Desktop shortcuts launch `gui/bin/FedUpDate.UI.exe` directly, so they open the frameless application window and take their icon from the executable's embedded resource. They previously ran the VBS launcher, which serves the interface through Edge in app mode: that window carries a native title bar above the in-app one, and the shortcut icon came from `wscript.exe`.
-  - The VBS launcher remains the fallback when the GUI has not been compiled, with the application icon set explicitly.
-- **Uninstall Prompt Defaults (`install.ps1`)**:
-  - Both questions accept Enter. Restoring Windows Update services and settings defaults to yes, shown as `[Y/n]`; keeping backup snapshots and logs defaults to no, shown as `[y/N]`.
-  - Unrecognised input re-asks instead of falling through to a branch that was not chosen.
-  - A non-interactive uninstall now restores Windows Update defaults as well, so an unattended removal cannot leave update services disabled.
 - **Project License (`README.md`, `LICENSE`)**:
   - Relicensed from MIT to PolyForm Noncommercial License 1.0.0. Use, modification, and redistribution remain free for any noncommercial purpose; commercial use is not permitted.
 - **Repository Exclusions (`.gitignore`)**:
