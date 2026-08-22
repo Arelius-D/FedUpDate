@@ -244,62 +244,119 @@ function Install-FedOSUpdates {
         }
     }
 
+    # Installing through the Update Agent requires elevation. Prompt for it the
+    # same way the watchdog does, rather than failing or stalling on a COM call
+    # that cannot succeed.
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        try {
+            $scriptRoot = Split-Path -Parent $PSScriptRoot
+            $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" update -OS" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+            if ($null -ne $p -and $p.ExitCode -eq 0) {
+                Write-FedLog "Elevated Windows Update installation completed successfully." -Level "SUCCESS" -Component "OSUpdate"
+                $rebootState = Get-FedRebootState
+                return [PSCustomObject]@{
+                    SuccessCount   = $UpdatesToInstall.Count
+                    FailCount      = 0
+                    RebootRequired = [bool]$rebootState.IsRebootRequired
+                }
+            }
+            Write-FedLog "Elevated Windows Update installation did not complete (exit code $($p.ExitCode))." -Level "WARN" -Component "OSUpdate"
+            return [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = $UpdatesToInstall.Count
+                RebootRequired = $false
+                Error          = "Elevated run returned exit code $($p.ExitCode)"
+            }
+        } catch {
+            Write-FedLog "Could not elevate for Windows Update installation: $($_.Exception.Message)" -Level "ERROR" -Component "OSUpdate"
+            return [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = $UpdatesToInstall.Count
+                RebootRequired = $false
+                Error          = "Elevation declined or unavailable"
+            }
+        }
+    }
+
     Write-FedLog "Preparing download & installation of $($UpdatesToInstall.Count) Windows Updates..." -Level "INFO" -Component "OSUpdate"
 
-    # Downloading and installing both go through the Update Agent, which needs
-    # the service the watchdog disables. The borrow covers the whole operation
-    # and restores the service afterwards, including on failure.
+    # The whole Update Agent conversation runs inside a job. The searcher call
+    # blocks indefinitely when Windows is busy, and running it directly stalled
+    # the caller with no output. COM objects cannot cross the job boundary, so
+    # the session, search, download and install all live inside it and only a
+    # summary comes back.
+    #
+    # The service borrow wraps the job rather than sitting inside it, so the
+    # service stays available for the entire operation.
     return Invoke-FedWithUpdateService -Action {
-    try {
-        $session = New-Object -ComObject Microsoft.Update.Session
-        $searcher = $session.CreateUpdateSearcher()
-        $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0")
+        $installJob = Start-Job -ScriptBlock {
+            try {
+                $session = New-Object -ComObject Microsoft.Update.Session
+                $searcher = $session.CreateUpdateSearcher()
+                $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0")
 
-        $downloader = $session.CreateUpdateDownloader()
-        $updatesCollection = New-Object -ComObject Microsoft.Update.UpdateColl
+                $collection = New-Object -ComObject Microsoft.Update.UpdateColl
+                if ($null -ne $searchResult -and $null -ne $searchResult.Updates) {
+                    foreach ($update in $searchResult.Updates) { $collection.Add($update) | Out-Null }
+                }
 
-        if ($null -ne $searchResult -and $null -ne $searchResult.Updates) {
-            foreach ($update in $searchResult.Updates) {
-                $updatesCollection.Add($update) | Out-Null
+                if ($collection.Count -eq 0) {
+                    return [PSCustomObject]@{ Stage = "search"; Count = 0; RebootRequired = $false }
+                }
+
+                $downloader = $session.CreateUpdateDownloader()
+                $downloader.Updates = $collection
+                $downloadResult = $downloader.Download()
+
+                $installer = $session.CreateUpdateInstaller()
+                $installer.Updates = $collection
+                $installer.ForceQuiet = $true
+                $installResult = $installer.Install()
+
+                return [PSCustomObject]@{
+                    Stage          = "installed"
+                    Count          = $collection.Count
+                    RebootRequired = $installResult.RebootRequired
+                    ResultCode     = $installResult.ResultCode
+                    DownloadCode   = $downloadResult.ResultCode
+                }
+            } catch {
+                return [PSCustomObject]@{ Stage = "error"; Error = $_.ToString() }
             }
         }
 
-        if ($updatesCollection.Count -eq 0) {
+        Write-FedLog "Downloading and installing Windows update packages..." -Level "INFO" -Component "OSUpdate"
+
+        if (-not ($installJob | Wait-Job -Timeout 1800)) {
+            Stop-Job -Job $installJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
+            Write-FedLog "Windows Update operation timed out after 30 minutes." -Level "ERROR" -Component "OSUpdate"
+            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = "Timed out" }
+        }
+
+        $outcome = Receive-Job -Job $installJob
+        Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
+
+        if ($null -eq $outcome -or $outcome.Stage -eq "error") {
+            $message = if ($outcome) { $outcome.Error } else { "No result returned" }
+            Write-FedLog "Error during Windows Update install: $message" -Level "ERROR" -Component "OSUpdate"
+            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = $message }
+        }
+
+        if ($outcome.Stage -eq "search") {
             Write-FedLog "No updates found in collection for download." -Level "WARN" -Component "OSUpdate"
-            return $null
+            return [PSCustomObject]@{ SuccessCount = 0; FailCount = 0; RebootRequired = $false }
         }
 
-        $downloader.Updates = $updatesCollection
-        Write-FedLog "Downloading Windows update packages..." -Level "INFO" -Component "OSUpdate"
-        $downloadResult = $downloader.Download()
-
-        Write-FedLog "Download finished with ResultCode: $($downloadResult.ResultCode)" -Level "INFO" -Component "OSUpdate"
-
-        $installer = $session.CreateUpdateInstaller()
-        $installer.Updates = $updatesCollection
-        $installer.ForceQuiet = $true
-
-        Write-FedLog "Installing Windows updates (background mid-flight reboot suppressed)..." -Level "INFO" -Component "OSUpdate"
-        $installResult = $installer.Install()
-
-        $rebootReq = $installResult.RebootRequired
-        Write-FedLog "Windows Update installation finished. RebootRequired: $rebootReq, ResultCode: $($installResult.ResultCode)" -Level "SUCCESS" -Component "OSUpdate"
-
+        Write-FedLog "Windows Update installation finished. Installed: $($outcome.Count), RebootRequired: $($outcome.RebootRequired), ResultCode: $($outcome.ResultCode)" -Level "SUCCESS" -Component "OSUpdate"
         return [PSCustomObject]@{
-            SuccessCount   = $updatesCollection.Count
+            SuccessCount   = $outcome.Count
             FailCount      = 0
-            RebootRequired = $rebootReq
-            ResultCode     = $installResult.ResultCode
+            RebootRequired = $outcome.RebootRequired
+            ResultCode     = $outcome.ResultCode
         }
-    } catch {
-        Write-FedLog "Error during Windows Update install: $_" -Level "ERROR" -Component "OSUpdate"
-        return [PSCustomObject]@{
-            SuccessCount   = 0
-            FailCount      = $UpdatesToInstall.Count
-            RebootRequired = $false
-            Error          = $_.ToString()
-        }
-    }
     }
 }
 

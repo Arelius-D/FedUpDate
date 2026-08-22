@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.3-beta] - 2026-08-22
+
+### Fixed
+
+- **Update Run Stalled Instead of Installing (`core/OSUpdateEngine.ps1`)**:
+  - The install path called the Update Agent search directly. That call blocks indefinitely while Windows is busy, so an update run logged that it was preparing and then produced nothing further: no progress, no error, and nothing installed. The scan already guarded the same call with a bounded job.
+  - The Update Agent conversation now runs inside a job with a thirty minute ceiling. Update Agent objects cannot cross a job boundary, so the session, search, download and install all take place within it and only the outcome is returned. A timeout is reported rather than waited on forever.
+  - Installing requires elevation, which the run did not request. It now prompts through UAC in the same way the Anti-Tamper Watchdog does, and reports clearly when elevation is declined.
+
+---
+
 ## [0.5.2-beta] - 2026-08-22
 
 ### Fixed
