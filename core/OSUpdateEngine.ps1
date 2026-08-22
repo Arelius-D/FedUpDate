@@ -96,16 +96,17 @@ function Invoke-FedWithUpdateService {
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
     try {
-        if ($originalStartType -eq "Disabled" -or $originalStatus -ne "Running") {
+        # Only a disabled service blocks the Update Agent. wuauserv is
+        # trigger-started, so a stopped service with a Manual start type is
+        # brought up on demand and needs no intervention or elevation.
+        if ($originalStartType -eq "Disabled") {
             if (-not $isAdmin) {
-                Write-FedLog "Windows Update service is $originalStatus/$originalStartType and this session is not elevated. Results may be incomplete; run elevated for a full scan." -Level "WARN" -Component "OSUpdate"
+                Write-FedLog "Windows Update service is disabled and this session is not elevated, so results may be incomplete." -Level "WARN" -Component "OSUpdate"
             } else {
-                if ($originalStartType -eq "Disabled") {
-                    Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
-                }
+                Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
                 Start-Service -Name $serviceName -ErrorAction Stop
                 $borrowed = $true
-                Write-FedLog "Temporarily started '$serviceName' for the update query." -Level "INFO" -Component "OSUpdate"
+                Write-FedLog "Temporarily started '$serviceName' for the update operation." -Level "INFO" -Component "OSUpdate"
             }
         }
 

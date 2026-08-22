@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.4-beta] - 2026-08-22
+
+### Fixed
+
+- **Spurious Elevation Warning During Scans (`core/OSUpdateEngine.ps1`)**:
+  - A scan warned that results might be incomplete whenever the Windows Update service was not running, then completed correctly. The service is trigger-started, so a stopped service with a Manual start type is brought up on demand and needs neither intervention nor elevation.
+  - The warning is now raised only when the service is genuinely disabled, which is the one state that prevents a scan from returning what is pending.
+
+---
+
 ## [0.5.3-beta] - 2026-08-22
 
 ### Fixed
