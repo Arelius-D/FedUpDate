@@ -108,10 +108,35 @@ function Record-FedRegistryChange {
             if ($null -ne $item -and $null -ne $item.$ValueName) {
                 $existed = $true
                 $origValue = $item.$ValueName
-                $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($KeyPath.Replace("HKLM:\", "").Replace("HKEY_LOCAL_MACHINE\", ""))
-                if ($regKey) {
-                    $origType = $regKey.GetValueKind($ValueName).ToString()
-                    $regKey.Close()
+                # Open the hive the path actually belongs to. Opening
+                # LocalMachine for an HKCU path silently yields no key, which is
+                # how HKCU value kinds went unrecorded and could not be restored.
+                $hive = $null
+                $subPath = $null
+                $cmp = [StringComparison]::OrdinalIgnoreCase
+                foreach ($prefix in @('HKCU:', 'HKEY_CURRENT_USER')) {
+                    if ($KeyPath.StartsWith($prefix, $cmp)) {
+                        $hive = [Microsoft.Win32.Registry]::CurrentUser
+                        $subPath = $KeyPath.Substring($prefix.Length).TrimStart([char]92)
+                        break
+                    }
+                }
+                if (-not $hive) {
+                    foreach ($prefix in @('HKLM:', 'HKEY_LOCAL_MACHINE')) {
+                        if ($KeyPath.StartsWith($prefix, $cmp)) {
+                            $hive = [Microsoft.Win32.Registry]::LocalMachine
+                            $subPath = $KeyPath.Substring($prefix.Length).TrimStart([char]92)
+                            break
+                        }
+                    }
+                }
+
+                if ($hive -and $subPath) {
+                    $regKey = $hive.OpenSubKey($subPath)
+                    if ($regKey) {
+                        $origType = $regKey.GetValueKind($ValueName).ToString()
+                        $regKey.Close()
+                    }
                 }
             }
         }
@@ -395,7 +420,22 @@ function Restore-FedState {
                                 Remove-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -ErrorAction SilentlyContinue | Out-Null
                                 Write-FedLog "Removed Registry property [$($ch.KeyPath)] '$($ch.ValueName)'" -Level "SUCCESS" -Component "Rollback"
                             } else {
-                                Set-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -Value $ch.OriginalValue -Type $ch.OriginalType -Force | Out-Null
+                                # Ledgers written before the hive fix carry no
+                                # OriginalType for HKCU values. Infer the kind from
+                                # the recorded value rather than failing the restore
+                                # and leaving policy behind.
+                                $restoreType = $ch.OriginalType
+                                if ([string]::IsNullOrWhiteSpace($restoreType)) {
+                                    $restoreType = if ($ch.PSObject.Properties['NewType'] -and -not [string]::IsNullOrWhiteSpace($ch.NewType)) {
+                                        $ch.NewType
+                                    } elseif ($ch.OriginalValue -is [int] -or $ch.OriginalValue -is [long]) {
+                                        "DWord"
+                                    } else {
+                                        "String"
+                                    }
+                                    Write-FedLog "No recorded value kind for [$($ch.KeyPath)] '$($ch.ValueName)'; restoring as $restoreType." -Level "WARN" -Component "Rollback"
+                                }
+                                Set-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -Value $ch.OriginalValue -Type $restoreType -Force | Out-Null
                                 Write-FedLog "Restored Registry property [$($ch.KeyPath)] '$($ch.ValueName)' = '$($ch.OriginalValue)'" -Level "SUCCESS" -Component "Rollback"
                             }
                         } catch {

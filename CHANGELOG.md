@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.2-beta] - 2026-08-22
+
+### Fixed
+
+- **Rollback of HKCU Policy Values (`core/RollbackEngine.ps1`)**:
+  - `Record-FedRegistryChange` opened `LocalMachine` for every path, so an `HKCU:` key resolved to nothing and its value kind was never recorded. Rollback then failed on those entries with a type binding error, and uninstall reported success while leaving user policy in place.
+  - The value kind is now read from the hive the path belongs to, for both `HKCU:` and `HKLM:` and their long forms.
+  - Restore tolerates a missing value kind, inferring it from the recorded change instead of failing. Ledgers written before this fix can therefore still be rolled back.
+
+---
+
 ## [0.4.1-beta] - 2026-08-22
 
 ### Fixed
