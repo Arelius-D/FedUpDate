@@ -58,6 +58,75 @@ function Update-FedDefenderDefinitions {
     }
 }
 
+function Invoke-FedWithUpdateService {
+    <#
+    .SYNOPSIS
+        Runs a scriptblock with the Windows Update service temporarily available.
+    .DESCRIPTION
+        The Anti-Tamper Watchdog disables wuauserv on purpose. The Windows Update
+        Agent COM API needs that service, so a scan run while it is disabled
+        returns nothing and looks identical to "no updates available".
+
+        This borrows the service for the duration of the work and restores the
+        original start type and running state afterwards. The restore happens in
+        a finally block: if the scan throws, the service must still go back to
+        how the watchdog left it, or the shield would be silently switched off.
+
+        Changing a service start type requires elevation. Without it the work
+        still runs, and the caller is told the result may be incomplete rather
+        than being handed a silent zero.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Action
+    )
+
+    $serviceName = "wuauserv"
+    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-FedLog "Service '$serviceName' not present; running without it." -Level "WARN" -Component "OSUpdate"
+        return & $Action
+    }
+
+    $originalStartType = $service.StartType
+    $originalStatus = $service.Status
+    $borrowed = $false
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    try {
+        if ($originalStartType -eq "Disabled" -or $originalStatus -ne "Running") {
+            if (-not $isAdmin) {
+                Write-FedLog "Windows Update service is $originalStatus/$originalStartType and this session is not elevated. Results may be incomplete; run elevated for a full scan." -Level "WARN" -Component "OSUpdate"
+            } else {
+                if ($originalStartType -eq "Disabled") {
+                    Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
+                }
+                Start-Service -Name $serviceName -ErrorAction Stop
+                $borrowed = $true
+                Write-FedLog "Temporarily started '$serviceName' for the update query." -Level "INFO" -Component "OSUpdate"
+            }
+        }
+
+        return & $Action
+    } finally {
+        if ($borrowed) {
+            try {
+                if ($originalStatus -ne "Running") {
+                    Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+                }
+                if ($originalStartType -eq "Disabled") {
+                    Set-Service -Name $serviceName -StartupType Disabled -ErrorAction SilentlyContinue
+                }
+                Write-FedLog "Restored '$serviceName' to $originalStatus/$originalStartType." -Level "INFO" -Component "OSUpdate"
+            } catch {
+                Write-FedLog "Could not restore '$serviceName' to $originalStartType. Run 'fedupdate watchdog enforce' to reapply the shield." -Level "ERROR" -Component "OSUpdate"
+            }
+        }
+    }
+}
+
 function Get-FedOSUpdates {
     [CmdletBinding()]
     param(
@@ -107,17 +176,22 @@ function Get-FedOSUpdates {
             }
         } -ArgumentList $onlineFlag
 
-        if ($searchJob | Wait-Job -Timeout 4) {
-            $updates = Receive-Job -Job $searchJob
-            if ($updates) {
-                foreach ($up in $updates) {
-                    $results.Add($up)
+        # The service stays borrowed until the search has finished and been
+        # collected. Restoring it any earlier would pull it out from under the
+        # running job, which is what an unelevated scan reporting zero looks like.
+        Invoke-FedWithUpdateService -Action {
+            if ($searchJob | Wait-Job -Timeout 30) {
+                $updates = Receive-Job -Job $searchJob
+                if ($updates) {
+                    foreach ($up in $updates) {
+                        $results.Add($up)
+                    }
                 }
+            } else {
+                Write-FedLog "Windows Update search timed out. Returned local state." -Level "WARN" -Component "OSUpdate"
+                Stop-Job -Job $searchJob -ErrorAction SilentlyContinue
             }
-        } else {
-            Write-FedLog "Windows Update service busy (OS Orchestrator active). Returned local state." -Level "INFO" -Component "OSUpdate"
-            Stop-Job -Job $searchJob -ErrorAction SilentlyContinue
-        }
+        } | Out-Null
         Remove-Job -Job $searchJob -Force -ErrorAction SilentlyContinue
 
         Write-FedLog "Found $($results.Count) pending Windows Update(s)." -Level "SUCCESS" -Component "OSUpdate"

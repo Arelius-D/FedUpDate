@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1-beta] - 2026-08-22
+
+### Fixed
+
+- **Windows Update Scanning While the Watchdog Is Active (`core/OSUpdateEngine.ps1`)**:
+  - The watchdog disables `wuauserv` by design, and the Windows Update Agent COM API needs it. A scan run in that state returned an empty result that was indistinguishable from genuinely having no updates, so enabling the shield made pending updates appear to vanish.
+  - `Invoke-FedWithUpdateService` now starts the service for the duration of a query and restores its original start type and running state afterwards. The restore runs in a `finally` block, so a failed or interrupted scan cannot leave the service enabled and the shield silently off.
+  - Without elevation the service cannot be started, so the scan reports that its result may be incomplete instead of returning a silent zero.
+  - The search timeout is raised from 4 to 30 seconds. Four seconds was frequently shorter than a genuine online query, which was reported as the service being busy.
+
+---
+
 ## [0.4.0-beta] - 2026-08-22
 
 ### Added
