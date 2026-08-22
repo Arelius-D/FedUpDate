@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.2-beta] - 2026-08-22
+
+### Changed
+
+- **Notification Centre Height (`gui/styles.css`)**:
+  - `--sys-dim-flyout-max-height` is derived from the window rather than fixed at `22rem`: `calc(100vh - var(--sys-dim-titlebar-height) - var(--sys-dim-dock-height) - var(--sys-space-xl))`. The flyout now grows with its contents until it reaches the docked drawer, instead of stopping at a constant height regardless of how much room the window offers.
+  - The limit moved from `.notif-flyout-list` to `.notif-flyout`, so the header counts toward it and the outer edge is what stops above the dock.
+  - The list takes the remaining space with `flex: 1 1 auto` and `min-height: 0`, which allows it to shrink below its content and engage its own scrollbar.
+
+---
+
 ## [0.3.1-beta] - 2026-08-22
 
 ### Fixed

@@ -140,7 +140,7 @@
   --sys-dim-caption-btn-width: 2.875rem;
   --sys-dim-modal-max-width: 30rem;
   --sys-dim-flyout-width: 22rem;
-  --sys-dim-flyout-max-height: 22rem;
+  --sys-dim-flyout-max-height: calc(100vh - var(--sys-dim-titlebar-height) - var(--sys-dim-dock-height) - var(--sys-space-xl));
   --sys-dim-input-min-height: 2.25rem;
   --sys-dim-input-sm-min-height: 1.875rem;
   --sys-dim-search-max-width: 24rem;
@@ -575,6 +575,7 @@ body {
   animation: flyoutFadeIn var(--sys-motion-duration-fast) var(--sys-motion-ease-spring);
   display: flex;
   flex-direction: column;
+  max-height: var(--sys-dim-flyout-max-height);
 }
 
 .notif-flyout.hidden {
@@ -623,7 +624,8 @@ body {
 }
 
 .notif-flyout-list {
-  max-height: var(--sys-dim-flyout-max-height);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
