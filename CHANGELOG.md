@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.3-beta] - 2026-08-22
+
+### Fixed
+
+- **Rollback Reapplying Enforced Policy (`core/RollbackEngine.ps1`)**:
+  - Enforcing the watchdog while it was already enforced recorded entries whose original and new values were identical. Reverting such an entry wrote the enforced value back, so rolling back the full ledger reapplied the policy it was meant to remove. An uninstall could therefore leave Windows Update fully locked down in both `HKCU` and `HKLM` while reporting success.
+  - Registry, service, and scheduled-task entries that record no actual change are now skipped during rollback, so a later transaction that correctly cleared a value is no longer undone by an earlier no-op.
+
+---
+
 ## [0.4.2-beta] - 2026-08-22
 
 ### Fixed

@@ -416,7 +416,13 @@ function Restore-FedState {
                         Write-FedLog "[WHATIF] Would revert Registry [$($ch.KeyPath)] '$($ch.ValueName)' -> Original: '$($ch.OriginalValue)' (Existed: $($ch.ExistedBefore))" -Level "WHATIF" -Component "Rollback"
                     } else {
                         try {
-                            if ($ch.ExistedBefore -eq $false -or $null -eq $ch.OriginalValue) {
+                            # A re-enforcement records the value it was already at.
+                            # Reverting such an entry would write the enforced value
+                            # back, undoing a newer transaction that correctly
+                            # removed it. Nothing changed, so nothing is reverted.
+                            if ($ch.ExistedBefore -eq $true -and $ch.OriginalValue -eq $ch.NewValue) {
+                                Write-FedLog "Skipped [$($ch.KeyPath)] '$($ch.ValueName)': value was unchanged by this transaction." -Level "INFO" -Component "Rollback"
+                            } elseif ($ch.ExistedBefore -eq $false -or $null -eq $ch.OriginalValue) {
                                 Remove-ItemProperty -Path $ch.KeyPath -Name $ch.ValueName -ErrorAction SilentlyContinue | Out-Null
                                 Write-FedLog "Removed Registry property [$($ch.KeyPath)] '$($ch.ValueName)'" -Level "SUCCESS" -Component "Rollback"
                             } else {
@@ -448,7 +454,9 @@ function Restore-FedState {
                         Write-FedLog "[WHATIF] Would restore Service '$($ch.ServiceName)' StartType -> '$($ch.OriginalStartType)'" -Level "WHATIF" -Component "Rollback"
                     } else {
                         try {
-                            if ($ch.OriginalStartType -ne "Unknown") {
+                            if ($ch.OriginalStartType -eq $ch.NewStartType) {
+                                Write-FedLog "Skipped Service '$($ch.ServiceName)': start type was unchanged by this transaction." -Level "INFO" -Component "Rollback"
+                            } elseif ($ch.OriginalStartType -ne "Unknown") {
                                 Set-Service -Name $ch.ServiceName -StartupType $ch.OriginalStartType -ErrorAction SilentlyContinue
                                 if ($ch.OriginalStatus -eq "Running") {
                                     Start-Service -Name $ch.ServiceName -ErrorAction SilentlyContinue
@@ -465,7 +473,9 @@ function Restore-FedState {
                         Write-FedLog "[WHATIF] Would restore Scheduled Task '$($ch.TaskPath)$($ch.TaskName)' -> '$($ch.OriginalState)'" -Level "WHATIF" -Component "Rollback"
                     } else {
                         try {
-                            if ($ch.OriginalState -eq "Ready" -or $ch.OriginalState -eq "Running") {
+                            if ($ch.OriginalState -eq $ch.NewState) {
+                                Write-FedLog "Skipped Scheduled Task '$($ch.TaskPath)$($ch.TaskName)': state was unchanged by this transaction." -Level "INFO" -Component "Rollback"
+                            } elseif ($ch.OriginalState -eq "Ready" -or $ch.OriginalState -eq "Running") {
                                 Enable-ScheduledTask -TaskPath $ch.TaskPath -TaskName $ch.TaskName -ErrorAction SilentlyContinue | Out-Null
                             } elseif ($ch.OriginalState -eq "Disabled") {
                                 Disable-ScheduledTask -TaskPath $ch.TaskPath -TaskName $ch.TaskName -ErrorAction SilentlyContinue | Out-Null
