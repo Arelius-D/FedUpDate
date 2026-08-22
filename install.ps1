@@ -61,6 +61,37 @@ $PayloadMarker = "fedupdate.ps1"
 # Helpers
 # ==============================================================================
 
+function Remove-FedProfileHook {
+    <#
+        Strips the FedUpDate alias from a PowerShell profile.
+
+        Removal is line based rather than a multiline regex. A regex that tried
+        to match the comment through the function body matched lazily and left
+        the body behind, and an orphaned scriptblock literal is evaluated and
+        printed by PowerShell on every new session. Matching any line that
+        mentions the entry script also clears fragments left by earlier builds.
+    #>
+    param([Parameter(Mandatory = $true)][string]$ProfilePath)
+
+    if (-not (Test-Path $ProfilePath)) { return $false }
+
+    $lines = @(Get-Content -Path $ProfilePath -ErrorAction SilentlyContinue)
+    if ($lines.Count -eq 0) { return $false }
+
+    $kept = @($lines | Where-Object {
+        $trimmed = $_.Trim()
+        -not ($trimmed -eq '# FedUpDate Alias Integration' -or
+              $trimmed.StartsWith('function fedupdate') -or
+              $_ -like '*fedupdate.ps1*')
+    })
+
+    if ($kept.Count -eq $lines.Count) { return $false }
+
+    $text = ($kept -join [Environment]::NewLine).TrimEnd()
+    Set-Content -Path $ProfilePath -Value $text -Encoding UTF8
+    return $true
+}
+
 function Read-FedYesNo {
     <#
         Prompts for a yes/no answer with a default that pressing Enter accepts.
@@ -333,10 +364,7 @@ if ($Uninstall) {
     $profilePaths = @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost) | Select-Object -Unique
     foreach ($p in $profilePaths) {
         if ($p -and (Test-Path $p)) {
-            $content = Get-Content -Path $p -Raw -ErrorAction SilentlyContinue
-            if ($content -match "FedUpDate Alias Integration") {
-                $cleaned = $content -replace "(?ms)# FedUpDate Alias Integration.*?function fedupdate.*?\r?\n?", ""
-                Set-Content -Path $p -Value $cleaned.Trim() -Encoding UTF8
+            if (Remove-FedProfileHook -ProfilePath $p) {
                 Write-Host "[OK] Removed alias from profile: $p" -ForegroundColor Green
             }
         }
@@ -455,11 +483,11 @@ foreach ($p in $profilePaths) {
         try {
             $pDir = Split-Path -Parent $p
             if (-not (Test-Path $pDir)) { New-Item -ItemType Directory -Path $pDir -Force | Out-Null }
-            $existing = if (Test-Path $p) { Get-Content -Path $p -Raw } else { "" }
-            if ($existing -notmatch "function fedupdate") {
-                Add-Content -Path $p -Value $profileHook -Encoding UTF8
-                Write-Host "[OK] Registered 'fedupdate' in PowerShell Profile ($p)." -ForegroundColor Green
-            }
+            # Clear any previous hook, including fragments left by older
+            # builds, so repeated installs cannot stack duplicates.
+            [void](Remove-FedProfileHook -ProfilePath $p)
+            Add-Content -Path $p -Value $profileHook -Encoding UTF8
+            Write-Host "[OK] Registered 'fedupdate' in PowerShell Profile ($p)." -ForegroundColor Green
         } catch { }
     }
 }

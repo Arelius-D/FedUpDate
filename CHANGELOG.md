@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.4-beta] - 2026-08-22
+
+### Fixed
+
+- **Profile Alias Left Fragments Behind (`install.ps1`)**:
+  - Uninstall removed the alias with a lazy multiline regex that matched only as far as the function name, leaving the body behind. An orphaned scriptblock literal is evaluated by PowerShell, so every new session printed it.
+  - Install then checked for the function name that removal had just deleted, so each reinstall appended another copy and the fragments accumulated.
+  - Removal is now line based and also clears fragments written by earlier builds, and install clears any existing hook before writing a new one so duplicates cannot stack.
+
+---
+
 ## [0.4.3-beta] - 2026-08-22
 
 ### Fixed
