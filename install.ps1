@@ -61,6 +61,29 @@ $PayloadMarker = "fedupdate.ps1"
 # Helpers
 # ==============================================================================
 
+function Read-FedYesNo {
+    <#
+        Prompts for a yes/no answer with a default that pressing Enter accepts.
+        The default is shown as the capitalised letter, so [Y/n] means Enter
+        chooses yes. Anything unrecognised re-asks rather than silently taking
+        a branch the user did not choose.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Question,
+        [Parameter(Mandatory = $true)][ValidateSet("Y", "N")][string]$Default
+    )
+
+    $hint = if ($Default -eq "Y") { "[Y/n]" } else { "[y/N]" }
+
+    while ($true) {
+        $answer = (Read-Host "$Question $hint").Trim()
+        if ([string]::IsNullOrEmpty($answer)) { return ($Default -eq "Y") }
+        if ($answer -match '^(y|yes)$') { return $true }
+        if ($answer -match '^(n|no)$')  { return $false }
+        Write-Host "  Please answer y or n." -ForegroundColor Yellow
+    }
+}
+
 function Get-FedShellFolder {
     <#
         Resolves a Windows shell folder to its real location.
@@ -256,10 +279,13 @@ if ($Uninstall) {
     $enginePath = Join-Path $scriptDir "core\Engine.psm1"
 
     # Step 1: Restore OS Defaults & Revert State Ledger
-    $shouldRestore = $RestoreOSDefaults.IsPresent
-    if (-not $NonInteractive -and -not $RestoreOSDefaults) {
-        $ans = Read-Host "Do you want to restore original Windows Update services & settings before uninstalling? (Y/N)"
-        if ($ans -eq "Y" -or $ans -eq "y" -or $ans -eq "") { $shouldRestore = $true }
+    # Restoring Windows Update defaults is the default action: leaving a machine
+    # with update services disabled after an uninstall is never the safe outcome.
+    $shouldRestore = $true
+    if ($RestoreOSDefaults) {
+        $shouldRestore = $true
+    } elseif (-not $NonInteractive) {
+        $shouldRestore = Read-FedYesNo -Question "Restore original Windows Update services and settings before uninstalling?" -Default "Y"
     }
 
     if ($shouldRestore -and (Test-Path $enginePath)) {
@@ -276,10 +302,11 @@ if ($Uninstall) {
     }
 
     # Step 2: Handle Backup Snapshots & Logs (.bak files)
+    # Keeping copies of logs and snapshots is opt-in, so a plain uninstall leaves
+    # nothing behind.
     $shouldKeep = $KeepBackups.IsPresent
     if (-not $NonInteractive -and -not $KeepBackups -and -not $PurgeAll) {
-        $ans = Read-Host "Do you want to keep your backup snapshot files (.bak) and logs in Documents\FedUpDate-Backups? (Y/N)"
-        if ($ans -eq "Y" -or $ans -eq "y" -or $ans -eq "") { $shouldKeep = $true }
+        $shouldKeep = Read-FedYesNo -Question "Keep backup snapshots and logs in Documents\FedUpDate-Backups?" -Default "N"
     }
 
     $dataDir = Join-Path $scriptDir "data"
@@ -437,14 +464,35 @@ foreach ($p in $profilePaths) {
     }
 }
 
-# 5. Create Start Menu & Desktop Shortcuts (points to silent single-window VBS launcher)
-#    Each shortcut is created independently so that one failure cannot skip the other.
+# 5. Create Start Menu & Desktop Shortcuts
+#    Shortcuts target the compiled GUI executable directly. It is a /target:winexe
+#    build, so it opens the frameless WindowChrome window with no console and no
+#    native title bar, and Windows draws the shortcut icon from the executable's
+#    own embedded resource.
+#
+#    If the GUI was not compiled, fall back to the silent VBS launcher, which
+#    serves the interface through Edge in app mode. That window carries Edge's
+#    own title bar, so it is a fallback rather than the intended experience.
 $wshShell = $null
 try { $wshShell = New-Object -ComObject WScript.Shell } catch {
     Write-Host "[WARN] Windows Script Host unavailable; skipping shortcuts." -ForegroundColor Yellow
 }
 
 if ($wshShell) {
+    $guiExe = Join-Path $scriptDir "gui\bin\FedUpDate.UI.exe"
+    $appIcon = Join-Path $scriptDir "assets\fedupdate.ico"
+
+    if (Test-Path $guiExe) {
+        $linkTarget = $guiExe
+        $linkArguments = ""
+        $linkIcon = $guiExe
+    } else {
+        Write-Host "[WARN] GUI executable not found; shortcuts will use the fallback launcher." -ForegroundColor Yellow
+        $linkTarget = "wscript.exe"
+        $linkArguments = "`"$vbsPath`""
+        $linkIcon = if (Test-Path $appIcon) { $appIcon } else { $null }
+    }
+
     $shortcutTargets = @(
         @{ Name = "Start Menu"; Dir = (Get-FedShellFolder -Folder Programs -Fallback "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") },
         @{ Name = "Desktop";    Dir = (Get-FedShellFolder -Folder DesktopDirectory -Fallback "$env:USERPROFILE\Desktop") }
@@ -458,10 +506,11 @@ if ($wshShell) {
         try {
             $lnkPath = Join-Path $target.Dir "FedUpDate.lnk"
             $lnk = $wshShell.CreateShortcut($lnkPath)
-            $lnk.TargetPath = "wscript.exe"
-            $lnk.Arguments = "`"$vbsPath`""
+            $lnk.TargetPath = $linkTarget
+            $lnk.Arguments = $linkArguments
             $lnk.WorkingDirectory = $scriptDir
             $lnk.Description = "FedUpDate - Unified Windows Update Suite"
+            if ($linkIcon) { $lnk.IconLocation = "$linkIcon,0" }
             $lnk.Save()
             Write-Host "[OK] Created $($target.Name) shortcut." -ForegroundColor Green
         } catch {
