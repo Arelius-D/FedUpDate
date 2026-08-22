@@ -1184,8 +1184,9 @@ body {
 .version-corner {
   position: fixed;
   right: var(--sys-space-lg);
-  /* Clears the docked drawer rather than overlapping it. */
-  bottom: calc(var(--sys-dim-dock-height) + var(--sys-space-lg));
+  /* Sits in the true corner. The drawer is hidden entirely when idle, so
+     reserving its height unconditionally would leave the glyph floating. */
+  bottom: var(--sys-space-lg);
   z-index: var(--sys-z-flyout);
   display: flex;
   flex-direction: column;
@@ -1195,6 +1196,12 @@ body {
 
 .version-corner.hidden {
   display: none;
+}
+
+/* The drawer precedes the corner in the markup, so its state can be read here.
+   When it is showing, the glyph lifts clear of it. */
+.task-progress-dock:not(.dock-idle) ~ .version-corner {
+  bottom: calc(var(--sys-dim-dock-height) + var(--sys-space-lg));
 }
 
 .version-glyph-btn {

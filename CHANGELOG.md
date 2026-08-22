@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1-beta] - 2026-08-22
+
+### Fixed
+
+- **Version Glyph Sat Above the Corner (`gui/index.html`, `gui/styles.css`)**:
+  - The glyph reserved the height of the docked drawer at all times, but the drawer is hidden entirely while idle, leaving the glyph floating well above the window corner.
+  - It now rests in the corner and lifts clear of the drawer only while the drawer is on screen. The corner follows the drawer in the markup so this is expressed in the stylesheet rather than coordinated from script.
+
+---
+
 ## [0.5.0-beta] - 2026-08-22
 
 ### Added
