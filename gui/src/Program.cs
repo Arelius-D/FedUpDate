@@ -306,6 +306,24 @@ namespace FedUpDate.UI
                         if (string.IsNullOrEmpty(msg)) msg = args.WebMessageAsJson;
                         HandleWebMessage(msg);
                     };
+
+                    // A link to an external site must open in the user's browser.
+                    // Left unhandled, WebView2 would either replace this window
+                    // with the web page or raise a chromeless popup.
+                    _webView.CoreWebView2.NewWindowRequested += (s, args) =>
+                    {
+                        args.Handled = true;
+                        OpenInDefaultBrowser(args.Uri);
+                    };
+
+                    _webView.CoreWebView2.NavigationStarting += (s, args) =>
+                    {
+                        if (!IsLocalInterface(args.Uri))
+                        {
+                            args.Cancel = true;
+                            OpenInDefaultBrowser(args.Uri);
+                        }
+                    };
                 }
 
                 // Guaranteed 2500ms branding splash presentation
@@ -447,6 +465,29 @@ namespace FedUpDate.UI
                 };
                 _splashGrid.BeginAnimation(UIElement.OpacityProperty, fade);
             }
+        }
+
+        private static bool IsLocalInterface(string uri)
+        {
+            if (string.IsNullOrEmpty(uri)) return true;
+            return uri.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase)
+                || uri.StartsWith("http://127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                || uri.StartsWith("about:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void OpenInDefaultBrowser(string uri)
+        {
+            // Only web addresses are handed to the shell, so a crafted link
+            // cannot be used to launch an arbitrary local program.
+            if (string.IsNullOrEmpty(uri)) return;
+            if (!uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                && !uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) return;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            }
+            catch { }
         }
 
         private void HandleWebMessage(string msg)

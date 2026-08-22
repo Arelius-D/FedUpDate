@@ -1212,8 +1212,9 @@ function renderReleaseNotes(releases) {
   // predictable size however many versions behind the user is.
   body.innerHTML = releases.map((r, i) => `
     <div class="release-entry">
-      <button class="release-heading" data-release-index="${i}">
-        <span>${escapeHtml(r.Version)}</span>
+      <button class="release-heading${i === 0 ? ' is-open' : ''}" data-release-index="${i}" aria-expanded="${i === 0}">
+        <svg class="release-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5.5a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 0 1-1.06-1.06L10.94 10 7.5 6.56a.75.75 0 0 1 0-1.06Z"/></svg>
+        <span class="release-version">${escapeHtml(r.Version)}</span>
         <span class="release-date">${escapeHtml(r.PublishedAt || '')}</span>
       </button>
       <div class="release-body${i === 0 ? '' : ' hidden'}" id="releaseBody-${i}">${escapeHtml(r.Body || '')}</div>
@@ -1222,7 +1223,11 @@ function renderReleaseNotes(releases) {
 
   body.querySelectorAll('.release-heading').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.getElementById(`releaseBody-${btn.dataset.releaseIndex}`)?.classList.toggle('hidden');
+      const target = document.getElementById(`releaseBody-${btn.dataset.releaseIndex}`);
+      if (!target) return;
+      const nowOpen = target.classList.toggle('hidden') === false;
+      btn.classList.toggle('is-open', nowOpen);
+      btn.setAttribute('aria-expanded', String(nowOpen));
     });
   });
 }

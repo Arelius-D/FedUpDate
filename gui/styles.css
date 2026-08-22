@@ -1305,6 +1305,23 @@ body {
   font-size: var(--sys-font-size-body);
   font-weight: var(--sys-font-weight-semibold);
   color: var(--sys-color-text-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.version-flyout-title:hover {
+  color: var(--sys-color-accent-primary);
+  text-decoration: underline;
+}
+
+.version-flyout-title:active {
+  color: var(--sys-color-accent-hover);
+}
+
+.version-flyout-title:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
 }
 
 .version-flyout-sub {
@@ -1365,6 +1382,23 @@ body {
 .release-heading:focus-visible {
   outline: none;
   box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
+}
+
+.release-chevron {
+  width: var(--sys-space-md);
+  height: var(--sys-space-md);
+  flex-shrink: 0;
+  fill: currentColor;
+  color: var(--sys-color-text-tertiary);
+  transition: transform var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.release-heading.is-open .release-chevron {
+  transform: rotate(90deg);
+}
+
+.release-version {
+  flex: 1 1 auto;
 }
 
 .release-date {

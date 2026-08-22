@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.6-beta] - 2026-08-22
+
+### Added
+
+- **External Links Open in the Browser (`gui/src/Program.cs`)**:
+  - The host now intercepts navigation and window requests, sending any address outside the local interface to the default browser. Without this a link would either replace the application window with a web page or raise a window with no controls.
+  - Only http and https addresses are passed to the shell, so a crafted link cannot be used to start an arbitrary local program.
+- **Full Changelog Link (`gui/index.html`, `gui/styles.css`)**:
+  - The title in the version panel opens the project's releases page, for readers who want the complete history rather than the versions between theirs and the latest.
+- **Expandable Release Indicator (`gui/app.js`, `gui/styles.css`)**:
+  - Each release heading carries a chevron that turns when the entry is open, so a collapsed release reads as something that can be opened rather than a dead row.
+
+---
+
 ## [0.5.5-beta] - 2026-08-22
 
 ### Fixed
