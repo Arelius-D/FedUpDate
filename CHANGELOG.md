@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.5-beta] - 2026-08-22
+
+### Fixed
+
+- **Dashboard and Notifications Not Refreshing After an Update (`gui/app.js`)**:
+  - Starting an update returns as soon as the run has been handed to a background runspace. The interface treated that reply as completion, so it announced success while the work was still in progress and then refreshed from state gathered before anything had been installed. The counts and notifications therefore stayed as they were.
+  - The interface now waits for the run to report that it has finished before refreshing. Because reading that status is also what makes the completed run's results available, polling is what allows the refreshed view to reflect the work that was done.
+  - A run that exceeds the engine's own thirty minute ceiling is reported as still running rather than as complete.
+
+---
+
 ## [0.5.4-beta] - 2026-08-22
 
 ### Fixed

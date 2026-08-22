@@ -734,8 +734,21 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
       })
     });
 
-    const result = await res.json();
-    setDockProgress("Complete", isWhatIf ? "Simulation completed successfully." : `Finished updating ${targetLabel}.`, 100, false);
+    await res.json();
+
+    // The POST only starts the run: the server executes it in a background
+    // runspace and answers immediately. Treating that answer as completion
+    // reported success while the work was still going and refreshed the
+    // dashboard from pre-update state, so the counts never moved.
+    setDockProgress(taskTitle, `Working through ${targetLabel}...`, 45, true);
+    const finished = await waitForUpdateCompletion();
+
+    if (finished) {
+      setDockProgress("Complete", isWhatIf ? "Simulation completed successfully." : `Finished updating ${targetLabel}.`, 100, false);
+    } else {
+      setDockProgress("Still running", "The update is taking longer than expected. See the logs for progress.", 100, false);
+    }
+
     await triggerScan();
     await loadLedger();
   } catch (err) {
@@ -743,6 +756,26 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
   } finally {
     state.isExecuting = false;
   }
+}
+
+// Polls until the background update reports it has finished. A GET also causes
+// the server to harvest the completed run, so polling is what makes its results
+// available. The ceiling matches the engine's own thirty minute limit.
+async function waitForUpdateCompletion({ intervalMs = 2000, timeoutMs = 1800000 } = {}) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+    try {
+      const res = await fetch(`${API_BASE}/api/update`);
+      const data = await res.json();
+      if (data.isRunning === false) return true;
+    } catch (err) {
+      // A refused poll is not fatal: the run continues and the next poll retries.
+      console.warn("Update poll failed:", err);
+    }
+  }
+  return false;
 }
 
 // Update Single / Selected WinGet Packages
