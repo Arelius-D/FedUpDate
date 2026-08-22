@@ -12,6 +12,7 @@
 . "$PSScriptRoot\RebootEngine.ps1"
 . "$PSScriptRoot\AntiTamperWatchdog.ps1"
 . "$PSScriptRoot\Scheduler.ps1"
+. "$PSScriptRoot\Version.ps1"
 
 function Start-FedScan {
     [CmdletBinding()]
@@ -131,4 +132,4 @@ function Start-FedUpdate {
     return $results
 }
 
-Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Reset-FedConfig, Get-FedRebootState, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Reset-FedConfig, Get-FedRebootState, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Invoke-FedSelfUpdate -ErrorAction SilentlyContinue

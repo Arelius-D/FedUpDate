@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0-beta] - 2026-08-22
+
+### Added
+
+- **Version Awareness and Self-Update (`core/Version.ps1`)**:
+  - The installed version is read from the topmost entry in `CHANGELOG.md`. That file already records every release, so the version cannot drift from the changelog: it is the changelog.
+  - `Get-FedLatestRelease` queries the GitHub releases API, and `Compare-FedVersion` orders releases numerically with prerelease handling, so `0.10.0` is correctly newer than `0.9.0` and `1.0.0-beta` is older than `1.0.0`.
+  - `Get-FedVersionStatus` reports the installed version, the published version, and whether an update is available. A failed network call is not an error: the installed version is still reported.
+  - `Invoke-FedSelfUpdate` updates in place by re-running the published installer, which already upgrades an existing installation and preserves the `data/` directory. There is one upgrade path rather than a second that could diverge.
+- **Version Surfaces Across All Three Interfaces**:
+  - CLI: `fedupdate version` shows the installed version and checks for a newer release; `fedupdate self-update` installs it. Both support `-WhatIf`.
+  - TUI: the banner reads the real version, and menu option 9 checks for and applies updates.
+  - GUI: `GET /api/version` and `POST /api/self-update`, with the remote check cached per server process so opening Settings repeatedly does not repeatedly call the GitHub API.
+  - GUI Settings shows a GitHub link with the repository glyph. When a newer release exists the glyph pulses, an update badge appears, and an update button is offered.
+
+### Fixed
+
+- **Hardcoded Version Strings (`gui/index.html`, `tui/TuiEngine.ps1`)**:
+  - The GUI titlebar badge and the TUI banner both displayed a literal `v0.1.0-beta` that was never updated and did not reflect the running release. Both now read the real version.
+
+### Removed
+
+- **Dead Code**:
+  - `mockInitialData()` in `gui/app.js`, which held placeholder package rows with fabricated version numbers. It was defined but never called.
+  - The `version` field from `Get-FedDefaultConfig` (`core/Config.ps1`). It was written into `config.json` on first run and never read back, so it recorded whichever version created the file rather than the version in use.
+
+---
+
 ## [0.3.2-beta] - 2026-08-22
 
 ### Changed

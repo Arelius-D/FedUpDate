@@ -43,6 +43,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     startLogPolling();
   } catch (e) { console.warn("Log polling setup:", e); }
+  try {
+    await loadVersionInfo();
+  } catch (e) { console.warn("Version check:", e); }
 
   try {
     await loadInitialData();
@@ -1075,6 +1078,68 @@ function setDockProgress(taskName, terminalLine, percent, isIndeterminate = fals
   }
 }
 
+// Version badge and update indicator. The version comes from the server, which
+// reads it from CHANGELOG.md, so the UI cannot show a stale hardcoded string.
+async function loadVersionInfo() {
+  const badge = document.getElementById('appVersionBadge');
+  const link = document.getElementById('aboutRepoLink');
+  const text = document.getElementById('aboutRepoText');
+  const updateBadge = document.getElementById('aboutUpdateBadge');
+  const updateBtn = document.getElementById('selfUpdateBtn');
+
+  let info = null;
+  try {
+    const res = await fetch(`${API_BASE}/api/version`);
+    info = await res.json();
+  } catch (err) {
+    console.warn("Version lookup failed:", err);
+  }
+
+  if (!info || !info.Current) {
+    if (badge) badge.textContent = '';
+    return;
+  }
+
+  if (badge) badge.textContent = `v${info.Current}`;
+  if (text) text.textContent = `FedUpDate v${info.Current}`;
+  if (link) link.href = info.ReleaseUrl || 'https://github.com/Arelius-D/FedUpDate';
+
+  const hasUpdate = info.UpdateAvailable === true;
+  link?.classList.toggle('has-update', hasUpdate);
+  updateBadge?.classList.toggle('hidden', !hasUpdate);
+  updateBtn?.classList.toggle('hidden', !hasUpdate);
+
+  if (hasUpdate && updateBadge) {
+    updateBadge.textContent = `Update available: ${info.Latest}`;
+  }
+
+  if (updateBtn && !updateBtn.dataset.bound) {
+    updateBtn.dataset.bound = '1';
+    updateBtn.addEventListener('click', runSelfUpdate);
+  }
+}
+
+async function runSelfUpdate() {
+  const btn = document.getElementById('selfUpdateBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  setDockProgress("Updating FedUpDate", "Downloading and installing the latest release...", 30, true);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/self-update`, { method: 'POST' });
+    const result = await res.json();
+    if (result.success) {
+      setDockProgress("Update complete", "Restart FedUpDate to run the new version.", 100, false);
+    } else {
+      setDockProgress("Update failed", "See the logs for details.", 100, false);
+    }
+  } catch (err) {
+    setDockProgress("Update failed", String(err), 100, false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Update now'; }
+    await loadVersionInfo();
+  }
+}
+
 // Helper: Escape HTML
 function escapeHtml(str) {
   if (!str) return '';
@@ -1085,27 +1150,3 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Mock fallback for offline browser previews
-function mockInitialData() {
-  state.scanData = {
-    OSUpdateCount: 2,
-    WingetUpdateCount: 4,
-    StoreInstalled: true,
-    IsRebootRequired: false,
-    RebootReasons: [],
-    WatchdogDrifted: false
-  };
-  state.packages = [
-    { Name: "Google Chrome", Id: "Google.Chrome", CurrentVersion: "120.0.6099.130", AvailableVersion: "122.0.6261.95", Source: "winget" },
-    { Name: "Visual Studio Code", Id: "Microsoft.VisualStudioCode", CurrentVersion: "1.85.1", AvailableVersion: "1.87.0", Source: "winget" },
-    { Name: "Git", Id: "Git.Git", CurrentVersion: "2.42.0", AvailableVersion: "2.44.0", Source: "winget" },
-    { Name: "7-Zip", Id: "7zip.7zip", CurrentVersion: "23.01", AvailableVersion: "24.01", Source: "winget" }
-  ];
-  state.ledger = [
-    { Id: "tx-20260816-152000-001", Description: "Initial Anti-Tamper Lockdown", Timestamp: "2026-08-16 15:20:00", Changes: [{}, {}] }
-  ];
-  updateDashboardUI();
-  renderPackagesTable();
-  renderLedgerTimeline();
-  setDockProgress("Ready", "FedUpDate running in preview mode.", 100, false);
-}

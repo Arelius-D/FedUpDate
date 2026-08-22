@@ -7,13 +7,16 @@ Import-Module (Join-Path $PSScriptRoot "..\core\Engine.psm1") -Force -DisableNam
 
 function Show-FedHeader {
     Clear-Host
+    # Version comes from CHANGELOG.md, so the banner cannot drift from the release.
+    $ver = Get-FedVersion
+    $verLabel = if ($ver) { "v$ver" } else { "unknown version" }
     $title = @"
 `e[38;2;99;102;241m    ______         __  __        ____        __       
    / ____/__  ____/ / / /_  __  / __ \____ _/ /____   
   / /_  / _ \/ __  / / / / / / / / / / __ `/ __/ _ \  
  / __/ /  __/ /_/ / /_/ /_/ / / /_/ / /_/ / /_/  __/  
 /_/    \___/\__,_/  \__,___/ /_____/\__,_/\__/\___/   
-    `e[38;2;139;92;246mv0.1.0-beta | Unified Windows Update & Anti-Tamper Suite`e[0m
+    `e[38;2;139;92;246m$verLabel | Unified Windows Update & Anti-Tamper Suite`e[0m
 "@
     Write-Host $title
     Write-Host "`e[90m--------------------------------------------------------------------------------`e[0m"
@@ -57,9 +60,10 @@ function Start-FedTUI {
         Write-Host " `e[38;2;236;72;153m[6]`e[0m `e[1mTask Scheduler Automation`e[0m (Configure automated background runs)"
         Write-Host " `e[38;2;14;165;233m[7]`e[0m `e[1mLaunch Modern Desktop GUI`e[0m (Open Fluent 2 Desktop Window)"
         Write-Host " `e[38;2;107;114;128m[8]`e[0m `e[1mView System Logs`e[0m (Browse real-time rolling logs)"
+        Write-Host " `e[38;2;168;85;247m[9]`e[0m `e[1mVersion & Update`e[0m (Check for a new release and update in place)"
         Write-Host " `e[91m[Q]`e[0m `e[1mQuit`e[0m"
         Write-Host ""
-        Write-Host -NoNewline "`e[1;36mSelect an option [1-8, Q]: `e[0m"
+        Write-Host -NoNewline "`e[1;36mSelect an option [1-9, Q]: `e[0m"
 
         $choice = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
         Write-Host $choice
@@ -204,6 +208,26 @@ function Start-FedTUI {
                 $logs = Get-FedLogs -Count 30
                 foreach ($l in $logs) {
                     Write-Host "[$($l.Timestamp)] [$($l.Level)] [$($l.Component)] $($l.Message)"
+                }
+                Write-Host "`n`e[90mPress any key to continue...`e[0m"
+                [Console]::ReadKey($true) | Out-Null
+            }
+            "9" {
+                Show-FedHeader
+                Write-Host "`e[1;37mVERSION & UPDATE`e[0m`n"
+                $status = Get-FedVersionStatus
+                Write-Host " Installed: $($status.Current)"
+                if (-not $status.RemoteReachable) {
+                    Write-Host " `e[33mCould not reach GitHub to check for updates.`e[0m"
+                } elseif ($status.UpdateAvailable) {
+                    Write-Host " `e[33mAvailable: $($status.Latest)`e[0m"
+                    Write-Host " $($status.ReleaseUrl)"
+                    Write-Host -NoNewline "`n Update now? [y/N]: "
+                    $reply = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
+                    Write-Host ""
+                    if ($reply -eq "Y") { Invoke-FedSelfUpdate | Out-Null }
+                } else {
+                    Write-Host " `e[32mUp to date.`e[0m"
                 }
                 Write-Host "`n`e[90mPress any key to continue...`e[0m"
                 [Console]::ReadKey($true) | Out-Null

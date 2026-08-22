@@ -1178,6 +1178,60 @@ body {
   background: var(--sys-badge-danger-bg);
 }
 
+/* --------------------------------------------------------------------------
+   Settings: repository link and update indicator
+   -------------------------------------------------------------------------- */
+.settings-about {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sys-space-md);
+  padding-top: var(--sys-space-md);
+  border-top: var(--sys-border-width) solid var(--sys-color-border-subtle);
+}
+
+.about-repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sys-space-sm);
+  color: var(--sys-color-text-tertiary);
+  text-decoration: none;
+  border-radius: var(--sys-radius-sm);
+  padding: var(--sys-space-xs) var(--sys-space-sm);
+  transition: color var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.about-repo-link:hover {
+  color: var(--sys-color-text-primary);
+}
+
+.about-repo-link:active {
+  color: var(--sys-color-accent-primary);
+}
+
+.about-repo-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
+}
+
+.about-repo-glyph {
+  width: var(--sys-space-lg);
+  height: var(--sys-space-lg);
+  flex-shrink: 0;
+}
+
+/* Draws attention only when a newer release exists. Reuses the shared pulse,
+   which the reduced-motion block already neutralises. */
+.about-repo-link.has-update .about-repo-glyph {
+  color: var(--sys-color-accent-amber);
+  animation: pulseGlow var(--sys-motion-duration-pulse) infinite ease-in-out;
+}
+
+.about-repo-text {
+  font-size: var(--sys-font-size-xs);
+  font-weight: var(--sys-font-weight-medium);
+}
+
 .danger-icon-box {
   color: var(--sys-color-accent-red);
 }

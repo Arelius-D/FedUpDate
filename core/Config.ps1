@@ -16,7 +16,6 @@ function Get-FedDataDirectory {
 
 function Get-FedDefaultConfig {
     return [PSCustomObject]@{
-        version     = "0.3.2-beta"
         lastUpdated = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
         engines     = [PSCustomObject]@{
             osUpdates           = $true

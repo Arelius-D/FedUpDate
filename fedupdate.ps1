@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("scan", "check", "update", "watchdog", "rollback", "schedule", "config", "logs", "tui", "gui", "uninstall", "help")]
+    [ValidateSet("scan", "check", "update", "watchdog", "rollback", "schedule", "config", "logs", "version", "self-update", "tui", "gui", "uninstall", "help")]
     [string]$Command = "tui",
 
     [Parameter()]
@@ -52,6 +52,9 @@ param(
 
     [Parameter()]
     [switch]$Latest,
+
+    [Parameter()]
+    [switch]$Force,
 
     [Parameter()]
     [string]$TransactionId,
@@ -168,6 +171,24 @@ switch ($Command.ToLower()) {
             }
         }
     }
+    "version" {
+        $status = Get-FedVersionStatus
+        Write-Host ""
+        Write-Host "FedUpDate $($status.Current)" -ForegroundColor Cyan
+        if (-not $status.RemoteReachable) {
+            Write-Host "  Could not reach GitHub to check for updates." -ForegroundColor Yellow
+        } elseif ($status.UpdateAvailable) {
+            Write-Host "  Update available: $($status.Latest)" -ForegroundColor Yellow
+            Write-Host "  $($status.ReleaseUrl)" -ForegroundColor Gray
+            Write-Host "  Run 'fedupdate self-update' to install it." -ForegroundColor Gray
+        } else {
+            Write-Host "  Up to date." -ForegroundColor Green
+        }
+        Write-Host ""
+    }
+    "self-update" {
+        Invoke-FedSelfUpdate -Force:$Force -WhatIf:$isWhatIf | Out-Null
+    }
     "config" {
         $cfg = Get-FedConfig
         $cfg | ConvertTo-Json -Depth 5
@@ -207,6 +228,8 @@ FedUpDate (fedupdate) CLI Help:
   fedupdate schedule [set|remove]     Manage automated update scheduled tasks
   fedupdate logs [-Count N]           Show recent execution log entries
   fedupdate config                    Print the active configuration
+  fedupdate version                   Show the installed version and check for updates
+  fedupdate self-update               Update FedUpDate in place to the latest release
   fedupdate tui                       Interactive Terminal UI dashboard
   fedupdate gui                       Launch modern Fluent 2 Desktop Window
   fedupdate uninstall                 Uninstall, with OS restore and backup options

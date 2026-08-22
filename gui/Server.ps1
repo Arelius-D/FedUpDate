@@ -516,6 +516,19 @@ try {
                     }
                     Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
                 }
+                "/api/version" {
+                    # The remote check is cached for the life of the server process:
+                    # opening Settings repeatedly must not hammer the GitHub API.
+                    if ($method -eq "POST" -or $null -eq $global:FedVersionStatus) {
+                        $global:FedVersionStatus = Get-FedVersionStatus
+                    }
+                    Send-FedResponse -Context $context -Content $global:FedVersionStatus -ContentType "application/json"
+                }
+                "/api/self-update" {
+                    $res = Invoke-FedSelfUpdate
+                    $global:FedVersionStatus = $null
+                    Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
+                }
                 "/api/config" {
                     if ($method -eq "POST") {
                         $body = Read-RequestBody -Context $context
