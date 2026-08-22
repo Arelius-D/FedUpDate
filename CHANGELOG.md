@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.2-beta] - 2026-08-22
+
+### Fixed
+
+- **Installing Updates While the Watchdog Is Active (`core/OSUpdateEngine.ps1`)**:
+  - Only the scan borrowed the Windows Update service. Downloading and installing go through the same Update Agent, so with the watchdog enforced an update run could complete without applying anything.
+  - The download and install operation now borrows the service for its duration and restores it afterwards, including when the run fails.
+
+---
+
 ## [0.5.1-beta] - 2026-08-22
 
 ### Fixed

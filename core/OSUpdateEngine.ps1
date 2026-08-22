@@ -246,6 +246,10 @@ function Install-FedOSUpdates {
 
     Write-FedLog "Preparing download & installation of $($UpdatesToInstall.Count) Windows Updates..." -Level "INFO" -Component "OSUpdate"
 
+    # Downloading and installing both go through the Update Agent, which needs
+    # the service the watchdog disables. The borrow covers the whole operation
+    # and restores the service afterwards, including on failure.
+    return Invoke-FedWithUpdateService -Action {
     try {
         $session = New-Object -ComObject Microsoft.Update.Session
         $searcher = $session.CreateUpdateSearcher()
@@ -295,6 +299,7 @@ function Install-FedOSUpdates {
             RebootRequired = $false
             Error          = $_.ToString()
         }
+    }
     }
 }
 
