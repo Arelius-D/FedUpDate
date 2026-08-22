@@ -524,9 +524,19 @@ try {
                     }
                     Send-FedResponse -Context $context -Content $global:FedVersionStatus -ContentType "application/json"
                 }
+                "/api/changelog" {
+                    # Cached per server process: the unauthenticated GitHub API
+                    # allows 60 requests an hour for the whole machine, so the
+                    # popover must not fetch every time it is opened.
+                    if ($method -eq "POST" -or $null -eq $global:FedReleaseNotes) {
+                        $global:FedReleaseNotes = @(Get-FedReleaseNotes)
+                    }
+                    Send-FedResponse -Context $context -Content @{ releases = $global:FedReleaseNotes } -ContentType "application/json"
+                }
                 "/api/self-update" {
                     $res = Invoke-FedSelfUpdate
                     $global:FedVersionStatus = $null
+                    $global:FedReleaseNotes = $null
                     Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
                 }
                 "/api/config" {

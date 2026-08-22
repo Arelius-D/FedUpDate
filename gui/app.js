@@ -80,6 +80,11 @@ function setupNavigation() {
 
     // Close notification flyout if open
     document.getElementById('notifFlyout')?.classList.add('hidden');
+
+    // The version corner belongs to Settings only, so it does not float over
+    // the other pages. Its popover closes with the page.
+    document.getElementById('versionCorner')?.classList.toggle('hidden', pageId !== 'settings');
+    document.getElementById('versionFlyout')?.classList.add('hidden');
   };
 
   tabButtons.forEach(btn => {
@@ -249,6 +254,20 @@ function setupEventListeners() {
         notifFlyout.classList.add('hidden');
       }
     });
+
+  const versionGlyphBtn = document.getElementById('versionGlyphBtn');
+  if (versionGlyphBtn) {
+    versionGlyphBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleVersionFlyout();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#versionCorner')) {
+        document.getElementById('versionFlyout')?.classList.add('hidden');
+      }
+    });
+  }
 
     document.getElementById('notifDismissAllBtn')?.addEventListener('click', () => {
       notifFlyout.classList.add('hidden');
@@ -1078,14 +1097,16 @@ function setDockProgress(taskName, terminalLine, percent, isIndeterminate = fals
   }
 }
 
-// Version badge and update indicator. The version comes from the server, which
-// reads it from CHANGELOG.md, so the UI cannot show a stale hardcoded string.
+// Version corner. The installed version comes from the server, which reads it
+// from CHANGELOG.md, so the UI cannot show a stale hardcoded string.
+let versionState = { current: null, latest: null, updateAvailable: false, releases: null };
+
 async function loadVersionInfo() {
   const badge = document.getElementById('appVersionBadge');
-  const link = document.getElementById('aboutRepoLink');
-  const text = document.getElementById('aboutRepoText');
-  const updateBadge = document.getElementById('aboutUpdateBadge');
-  const updateBtn = document.getElementById('selfUpdateBtn');
+  const glyph = document.getElementById('versionGlyphBtn');
+  const dot = document.getElementById('versionGlyphDot');
+  const sub = document.getElementById('versionFlyoutSub');
+  const updateBtn = document.getElementById('versionUpdateBtn');
 
   let info = null;
   try {
@@ -1097,20 +1118,31 @@ async function loadVersionInfo() {
 
   if (!info || !info.Current) {
     if (badge) badge.textContent = '';
+    if (sub) sub.textContent = 'Version unavailable';
     return;
   }
 
+  versionState.current = info.Current;
+  versionState.latest = info.Latest;
+  versionState.updateAvailable = info.UpdateAvailable === true;
+
   if (badge) badge.textContent = `v${info.Current}`;
-  if (text) text.textContent = `FedUpDate v${info.Current}`;
-  if (link) link.href = info.ReleaseUrl || 'https://github.com/Arelius-D/FedUpDate';
 
-  const hasUpdate = info.UpdateAvailable === true;
-  link?.classList.toggle('has-update', hasUpdate);
-  updateBadge?.classList.toggle('hidden', !hasUpdate);
-  updateBtn?.classList.toggle('hidden', !hasUpdate);
+  // The glyph carries the installed version on hover, so no text is needed
+  // beside it in the corner.
+  if (glyph) {
+    glyph.title = versionState.updateAvailable
+      ? `FedUpDate v${info.Current} - update to ${info.Latest} available`
+      : `FedUpDate v${info.Current} - up to date`;
+    glyph.classList.toggle('has-update', versionState.updateAvailable);
+  }
+  dot?.classList.toggle('hidden', !versionState.updateAvailable);
+  updateBtn?.classList.toggle('hidden', !versionState.updateAvailable);
 
-  if (hasUpdate && updateBadge) {
-    updateBadge.textContent = `Update available: ${info.Latest}`;
+  if (sub) {
+    sub.textContent = versionState.updateAvailable
+      ? `v${info.Current} - v${info.Latest} available`
+      : `v${info.Current} - up to date`;
   }
 
   if (updateBtn && !updateBtn.dataset.bound) {
@@ -1119,8 +1151,62 @@ async function loadVersionInfo() {
   }
 }
 
+// Release notes are fetched once and cached, both here and on the server: the
+// unauthenticated GitHub API allows only 60 requests an hour per machine.
+async function loadReleaseNotes() {
+  if (versionState.releases) return versionState.releases;
+  try {
+    const res = await fetch(`${API_BASE}/api/changelog`);
+    const data = await res.json();
+    versionState.releases = Array.isArray(data.releases) ? data.releases : [];
+  } catch (err) {
+    console.warn("Release notes lookup failed:", err);
+    versionState.releases = [];
+  }
+  return versionState.releases;
+}
+
+function renderReleaseNotes(releases) {
+  const body = document.getElementById('versionFlyoutBody');
+  if (!body) return;
+
+  if (!releases.length) {
+    body.innerHTML = `<div class="version-empty">You are on the latest version.</div>`;
+    return;
+  }
+
+  // Newest expanded, older ones collapsed to their heading. Keeps the popover a
+  // predictable size however many versions behind the user is.
+  body.innerHTML = releases.map((r, i) => `
+    <div class="release-entry">
+      <button class="release-heading" data-release-index="${i}">
+        <span>${escapeHtml(r.Version)}</span>
+        <span class="release-date">${escapeHtml(r.PublishedAt || '')}</span>
+      </button>
+      <div class="release-body${i === 0 ? '' : ' hidden'}" id="releaseBody-${i}">${escapeHtml(r.Body || '')}</div>
+    </div>
+  `).join('');
+
+  body.querySelectorAll('.release-heading').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById(`releaseBody-${btn.dataset.releaseIndex}`)?.classList.toggle('hidden');
+    });
+  });
+}
+
+async function toggleVersionFlyout() {
+  const flyout = document.getElementById('versionFlyout');
+  if (!flyout) return;
+
+  const opening = flyout.classList.contains('hidden');
+  flyout.classList.toggle('hidden', !opening);
+  if (!opening) return;
+
+  renderReleaseNotes(await loadReleaseNotes());
+}
+
 async function runSelfUpdate() {
-  const btn = document.getElementById('selfUpdateBtn');
+  const btn = document.getElementById('versionUpdateBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
   setDockProgress("Updating FedUpDate", "Downloading and installing the latest release...", 30, true);
 
@@ -1136,6 +1222,7 @@ async function runSelfUpdate() {
     setDockProgress("Update failed", String(err), 100, false);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Update now'; }
+    versionState.releases = null;
     await loadVersionInfo();
   }
 }

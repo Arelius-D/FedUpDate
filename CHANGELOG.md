@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0-beta] - 2026-08-22
+
+### Added
+
+- **Version Corner and In-App Changelog (`gui/index.html`, `gui/styles.css`, `gui/app.js`, `gui/Server.ps1`, `core/Version.ps1`)**:
+  - The repository glyph is anchored to the bottom right of the window on the Settings page, clearing the docked drawer. It carries the installed version on hover and pulses when a newer release exists.
+  - Clicking it opens a panel upward, in the same manner as the notification centre, showing the installed and available versions with an update control.
+  - The panel presents the release notes for every version between the installed one and the latest, so an update can be read and judged without leaving the application. The newest release is expanded and older ones collapse to their heading, keeping the panel a predictable size however far behind an installation is.
+  - `Get-FedReleaseNotes` returns those notes, dropping the trailing bootstrap instructions: inside the application the update control is already present, so repeating the command is noise. The published release keeps it.
+  - `GET /api/changelog` serves the notes and caches them for the life of the server process, as the unauthenticated GitHub API allows sixty requests an hour for the whole machine.
+
+### Changed
+
+- **Settings Layout (`gui/index.html`)**:
+  - The version row that sat at the end of the Settings content is replaced by the corner glyph. The repository name, the update badge, and the update button now live inside the panel rather than beside the glyph.
+
+---
+
 ## [0.4.4-beta] - 2026-08-22
 
 ### Fixed

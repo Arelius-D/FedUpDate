@@ -165,6 +165,61 @@ function Get-FedVersionStatus {
     return $status
 }
 
+function Get-FedReleaseNotes {
+    <#
+    .SYNOPSIS
+        Returns the release notes for every version newer than the installed one.
+    .DESCRIPTION
+        Lets the user read what an update actually contains without leaving the
+        application. Notes come from the releases API, newest first.
+
+        The trailing install instructions are stripped: inside the application
+        the user already has an update control, so repeating the bootstrap
+        command is noise. The published release keeps it.
+    #>
+    [CmdletBinding()]
+    param(
+        [int]$Limit = 10,
+
+        # Overrides the installed version. Used for testing and by callers that
+        # already resolved it.
+        [string]$CurrentVersion
+    )
+
+    $current = if ($CurrentVersion) { $CurrentVersion } else { Get-FedVersion }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $headers = @{ "User-Agent" = "FedUpDate" }
+
+    try {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$script:FedRepoSlug/releases?per_page=$Limit" -Headers $headers -UseBasicParsing
+    } catch {
+        Write-FedLog "Could not retrieve release notes: $_" -Level "WARN" -Component "Version"
+        return @()
+    }
+
+    $notes = foreach ($release in @($releases)) {
+        if ((Compare-FedVersion -Left $current -Right $release.tag_name) -ge 0) { continue }
+
+        $body = if ($release.body) { $release.body } else { "" }
+
+        # Drop the bootstrap instructions and anything after them.
+        $kept = New-Object System.Collections.Generic.List[string]
+        foreach ($line in ($body -split "`r?`n")) {
+            if ($line.Trim() -eq "Install:") { break }
+            $kept.Add($line)
+        }
+
+        [PSCustomObject]@{
+            Version     = $release.tag_name
+            PublishedAt = if ($release.published_at) { ([datetime]$release.published_at).ToString('yyyy-MM-dd') } else { "" }
+            Body        = (($kept -join [Environment]::NewLine).Trim())
+            Url         = $release.html_url
+        }
+    }
+
+    return @($notes)
+}
+
 function Invoke-FedSelfUpdate {
     <#
     .SYNOPSIS

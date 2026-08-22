@@ -1179,57 +1179,203 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   Settings: repository link and update indicator
+   Version corner: glyph anchored to the bottom right, popover opens upward
    -------------------------------------------------------------------------- */
-.settings-about {
+.version-corner {
+  position: fixed;
+  right: var(--sys-space-lg);
+  /* Clears the docked drawer rather than overlapping it. */
+  bottom: calc(var(--sys-dim-dock-height) + var(--sys-space-lg));
+  z-index: var(--sys-z-flyout);
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--sys-space-md);
-  padding-top: var(--sys-space-md);
-  border-top: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sys-space-sm);
 }
 
-.about-repo-link {
+.version-corner.hidden {
+  display: none;
+}
+
+.version-glyph-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--sys-space-sm);
+  justify-content: center;
+  width: var(--sys-dim-icon-btn-size);
+  height: var(--sys-dim-icon-btn-size);
+  padding: 0;
+  background: var(--sys-color-surface-card);
+  border: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  border-radius: var(--sys-radius-pill);
+  box-shadow: var(--sys-shadow-md);
   color: var(--sys-color-text-tertiary);
-  text-decoration: none;
-  border-radius: var(--sys-radius-sm);
-  padding: var(--sys-space-xs) var(--sys-space-sm);
-  transition: color var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+  cursor: pointer;
+  transition: color var(--sys-motion-duration-fast) var(--sys-motion-ease-default),
+              border-color var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
 }
 
-.about-repo-link:hover {
+.version-glyph-btn:hover {
   color: var(--sys-color-text-primary);
+  border-color: var(--sys-color-border-interactive);
 }
 
-.about-repo-link:active {
+.version-glyph-btn:active {
   color: var(--sys-color-accent-primary);
 }
 
-.about-repo-link:focus-visible {
+.version-glyph-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
 }
 
-.about-repo-glyph {
+.version-glyph {
   width: var(--sys-space-lg);
   height: var(--sys-space-lg);
-  flex-shrink: 0;
 }
 
-/* Draws attention only when a newer release exists. Reuses the shared pulse,
-   which the reduced-motion block already neutralises. */
-.about-repo-link.has-update .about-repo-glyph {
+/* Announces a newer release. Reuses the shared pulse, which the reduced-motion
+   block already neutralises. */
+.version-glyph-btn.has-update {
   color: var(--sys-color-accent-amber);
+  border-color: var(--sys-color-accent-amber);
+}
+
+.version-glyph-btn.has-update .version-glyph {
   animation: pulseGlow var(--sys-motion-duration-pulse) infinite ease-in-out;
 }
 
-.about-repo-text {
+.version-glyph-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--sys-space-sm);
+  height: var(--sys-space-sm);
+  border-radius: var(--sys-radius-pill);
+  background: var(--sys-color-accent-amber);
+}
+
+.version-glyph-dot.hidden {
+  display: none;
+}
+
+.version-flyout {
+  width: var(--sys-dim-flyout-width);
+  max-width: 90vw;
+  /* Same window-relative bound as the notification centre, minus the glyph. */
+  max-height: calc(100vh - var(--sys-dim-titlebar-height) - var(--sys-dim-dock-height) - var(--sys-dim-icon-btn-size) - var(--sys-space-xl));
+  background: var(--sys-color-surface-card);
+  backdrop-filter: var(--sys-blur-lg);
+  border: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  border-radius: var(--sys-radius-lg);
+  box-shadow: var(--sys-shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: flyoutFadeIn var(--sys-motion-duration-fast) var(--sys-motion-ease-spring);
+}
+
+.version-flyout.hidden {
+  display: none;
+}
+
+.version-flyout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sys-space-sm);
+  padding: var(--sys-space-md) var(--sys-space-lg);
+  border-bottom: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  background: var(--sys-color-surface-translucent);
+}
+
+.version-flyout-titles {
+  display: flex;
+  flex-direction: column;
+}
+
+.version-flyout-title {
+  font-size: var(--sys-font-size-body);
+  font-weight: var(--sys-font-weight-semibold);
+  color: var(--sys-color-text-primary);
+}
+
+.version-flyout-sub {
   font-size: var(--sys-font-size-xs);
+  color: var(--sys-color-text-tertiary);
+}
+
+.version-flyout-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sys-space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sys-space-xs);
+}
+
+.version-empty {
+  padding: var(--sys-space-md);
+  font-size: var(--sys-font-size-xs);
+  color: var(--sys-color-text-tertiary);
+  text-align: center;
+}
+
+/* One release. The newest renders expanded; older ones collapse to their
+   heading so the popover stays a predictable size however far behind a user is. */
+.release-entry {
+  border-radius: var(--sys-radius-sm);
+  border: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  overflow: hidden;
+}
+
+.release-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sys-space-sm);
+  width: 100%;
+  padding: var(--sys-space-sm) var(--sys-space-md);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--sys-color-text-primary);
+  font-size: var(--sys-font-size-xs);
+  font-weight: var(--sys-font-weight-semibold);
+  text-align: left;
+  transition: background var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.release-heading:hover {
+  background: var(--sys-color-surface-translucent);
+}
+
+.release-heading:active {
+  color: var(--sys-color-accent-primary);
+}
+
+.release-heading:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
+}
+
+.release-date {
   font-weight: var(--sys-font-weight-medium);
+  color: var(--sys-color-text-tertiary);
+}
+
+.release-body {
+  padding: 0 var(--sys-space-md) var(--sys-space-md) var(--sys-space-md);
+  font-size: var(--sys-font-size-xs);
+  line-height: var(--sys-line-height-relaxed);
+  color: var(--sys-color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.release-body.hidden {
+  display: none;
 }
 
 .danger-icon-box {
