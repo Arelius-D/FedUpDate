@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed the `-DryRun` switch and its `simulate` alias. `-WhatIf` is the one simulation flag, matching PowerShell convention and the engine layer, which already used `-WhatIf` exclusively.
   - The TUI menu, the GUI action button, and the log-level filter now read WhatIf rather than mixing both names.
   - The `WHATIF` log level and the `whatif` field in the local GUI API are unchanged, so simulation output and the GUI request contract behave exactly as before.
+- **Shortcut Creation on Redirected User Folders (`install.ps1`)**:
+  - Start Menu and Desktop locations are resolved through the Windows special-folder API rather than assumed to sit under `%USERPROFILE%`. Where OneDrive Known Folder Move has redirected the Desktop, the literal path does not exist and shortcut creation failed.
+  - Each shortcut is created independently, so a failure on one no longer prevents the other from being written.
+  - Uninstall resolves the same locations, so redirected shortcuts are removed cleanly.
 - **Project License (`README.md`, `LICENSE`)**:
   - Relicensed from MIT to PolyForm Noncommercial License 1.0.0. Use, modification, and redistribution remain free for any noncommercial purpose; commercial use is not permitted.
 - **Repository Exclusions (`.gitignore`)**:

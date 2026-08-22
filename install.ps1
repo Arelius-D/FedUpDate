@@ -61,6 +61,30 @@ $PayloadMarker = "fedupdate.ps1"
 # Helpers
 # ==============================================================================
 
+function Get-FedShellFolder {
+    <#
+        Resolves a Windows shell folder to its real location.
+
+        Desktop and Documents are frequently redirected into OneDrive by Known
+        Folder Move, in which case %USERPROFILE%\Desktop does not exist. The
+        .NET special-folder API follows that redirection; the literal path is
+        only a fallback for the rare case where it returns nothing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Environment+SpecialFolder]$Folder,
+        [string]$Fallback
+    )
+
+    try {
+        $resolved = [Environment]::GetFolderPath($Folder)
+        if ($resolved -and (Test-Path $resolved)) { return $resolved }
+    } catch { }
+
+    if ($Fallback -and (Test-Path $Fallback)) { return $Fallback }
+    return $null
+}
+
 function Test-FedPayloadRoot {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
@@ -292,10 +316,11 @@ if ($Uninstall) {
     }
 
     # Step 5: Remove Shortcuts
-    $shortcutsToRemove = @(
-        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\FedUpDate.lnk",
-        "$env:USERPROFILE\Desktop\FedUpDate.lnk"
-    )
+    $startMenuDir = Get-FedShellFolder -Folder Programs -Fallback "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+    $desktopDir = Get-FedShellFolder -Folder DesktopDirectory -Fallback "$env:USERPROFILE\Desktop"
+    $shortcutsToRemove = @($startMenuDir, $desktopDir) |
+        Where-Object { $_ } |
+        ForEach-Object { Join-Path $_ "FedUpDate.lnk" }
     foreach ($s in $shortcutsToRemove) {
         if (Test-Path $s) {
             Remove-Item $s -Force -ErrorAction SilentlyContinue
@@ -413,30 +438,36 @@ foreach ($p in $profilePaths) {
 }
 
 # 5. Create Start Menu & Desktop Shortcuts (points to silent single-window VBS launcher)
-try {
-    $wshShell = New-Object -ComObject WScript.Shell
+#    Each shortcut is created independently so that one failure cannot skip the other.
+$wshShell = $null
+try { $wshShell = New-Object -ComObject WScript.Shell } catch {
+    Write-Host "[WARN] Windows Script Host unavailable; skipping shortcuts." -ForegroundColor Yellow
+}
 
-    # Start Menu Shortcut
-    $startMenuLnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\FedUpDate.lnk"
-    $shortcut = $wshShell.CreateShortcut($startMenuLnk)
-    $shortcut.TargetPath = "wscript.exe"
-    $shortcut.Arguments = "`"$vbsPath`""
-    $shortcut.WorkingDirectory = $scriptDir
-    $shortcut.Description = "FedUpDate - Unified Windows Update Suite"
-    $shortcut.Save()
-    Write-Host "[OK] Created Start Menu shortcut." -ForegroundColor Green
+if ($wshShell) {
+    $shortcutTargets = @(
+        @{ Name = "Start Menu"; Dir = (Get-FedShellFolder -Folder Programs -Fallback "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") },
+        @{ Name = "Desktop";    Dir = (Get-FedShellFolder -Folder DesktopDirectory -Fallback "$env:USERPROFILE\Desktop") }
+    )
 
-    # Desktop Shortcut
-    $desktopLnk = "$env:USERPROFILE\Desktop\FedUpDate.lnk"
-    $dShortcut = $wshShell.CreateShortcut($desktopLnk)
-    $dShortcut.TargetPath = "wscript.exe"
-    $dShortcut.Arguments = "`"$vbsPath`""
-    $dShortcut.WorkingDirectory = $scriptDir
-    $dShortcut.Description = "FedUpDate - Unified Windows Update Suite"
-    $dShortcut.Save()
-    Write-Host "[OK] Created Desktop shortcut." -ForegroundColor Green
-} catch {
-    Write-Host "[WARN] Failed to create shortcuts: $_" -ForegroundColor Yellow
+    foreach ($target in $shortcutTargets) {
+        if (-not $target.Dir) {
+            Write-Host "[WARN] Could not locate the $($target.Name) folder; shortcut skipped." -ForegroundColor Yellow
+            continue
+        }
+        try {
+            $lnkPath = Join-Path $target.Dir "FedUpDate.lnk"
+            $lnk = $wshShell.CreateShortcut($lnkPath)
+            $lnk.TargetPath = "wscript.exe"
+            $lnk.Arguments = "`"$vbsPath`""
+            $lnk.WorkingDirectory = $scriptDir
+            $lnk.Description = "FedUpDate - Unified Windows Update Suite"
+            $lnk.Save()
+            Write-Host "[OK] Created $($target.Name) shortcut." -ForegroundColor Green
+        } catch {
+            Write-Host "[WARN] Failed to create $($target.Name) shortcut: $_" -ForegroundColor Yellow
+        }
+    }
 }
 
 Write-Host "`nInstallation Complete! Available commands:" -ForegroundColor Green
