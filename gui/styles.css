@@ -658,6 +658,11 @@ body {
   background: var(--sys-badge-recommended-bg);
 }
 
+.notif-item.notif-info {
+  border-color: var(--sys-badge-info-border);
+  background: var(--sys-badge-info-bg);
+}
+
 .notif-item-header {
   display: flex;
   align-items: center;
@@ -2033,12 +2038,18 @@ input[type="time"] {
   border-radius: var(--sys-radius-md);
 }
 
-.modal-checkbox-label {
+.modal-choice-label {
   display: flex;
   align-items: flex-start;
   gap: var(--sys-space-sm);
   font-size: var(--sys-font-size-sm);
   cursor: pointer;
+  line-height: var(--sys-line-height-normal);
+}
+
+.modal-note {
+  font-size: var(--sys-font-size-xs);
+  color: var(--sys-color-text-secondary);
   line-height: var(--sys-line-height-normal);
 }
 

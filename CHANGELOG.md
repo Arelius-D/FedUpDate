@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.7-beta] - 2026-08-23
+
+### Fixed
+
+- **Routine Installer Cleanup Reported as a Required Restart (`core/RebootEngine.ps1`)**:
+  - Windows keeps a list of files an installer has asked to have removed or replaced during the next restart. Ordinary use writes to that list constantly, because a browser or a security product that updates itself leaves its old temporary folder behind for the system to clear on the way up. Any entry at all was taken as proof that the system was waiting on a restart, so the notification centre asked for one, then asked again a few hours after the machine came back, because by then the next update had queued its own cleanup.
+  - The list is now read as the pairs of source and destination it actually holds. An entry with no destination is a deletion, which is how an installer tidies after itself, and is reported as routine rather than as a restart the system is waiting on. An entry that replaces a file in place is a genuine change and still counts as one.
+  - The same list was read as a flat run of strings, so three operations were reported as the six slots they occupy whenever files were being replaced rather than deleted.
+
+- **Restart and Shut Down Acting on Routine Cleanup (`core/RebootEngine.ps1`)**:
+  - The Force, Shutdown and Schedule policies acted on any pending item, a temporary folder left behind by a browser update included. On an unattended schedule that closed applications without warning over a condition which returns on its own within hours, so a machine could restart repeatedly and never reach a state where it stopped.
+  - Those three policies now act only when the system is genuinely part way through a change. Choosing Restart Now or Shut Down in the interface works exactly as before, because a person asking for a restart is not the same as a policy deciding on one.
+
+- **Restart Policies That Reported Success Without Acting (`core/RebootEngine.ps1`)**:
+  - Schedule reported that a restart had been scheduled and returned that result, but scheduled nothing. It now sets a restart at the configured quiet hour, which can be cancelled with `shutdown /a`.
+  - Notify loaded a windowing library and then displayed nothing.
+  - Prompt and Smart were offered in the settings and in the configuration file but had no implementation, so both fell through to a default without saying so. Prompt now asks, in whichever interface is running. Smart reports what is pending and never restarts on its own.
+
+- **Restart Notices That Did Not Say What Was Pending (`core/RebootEngine.ps1`, `core/Engine.psm1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`)**:
+  - A pending restart was reported as a count, leaving no way to tell a queued temporary folder from a system file waiting to be replaced without reading the registry by hand. The affected paths were collected and then discarded before they reached any interface.
+  - The command line, the text interface and the notification centre now name what is pending.
+
+- **Restart Conditions That Went Undetected (`core/RebootEngine.ps1`)**:
+  - Staged servicing packages, updates awaiting a restart to finish installing, a pending computer rename, a pending domain join and an installer that stopped part way were never checked. A real pending restart could therefore be missed while routine cleanup was reported as one.
+
+- **Notification Entries Rendering an Empty Control (`gui/app.js`)**:
+  - An entry with nothing to offer still rendered a button, labelled with the text it did not have. Entries without an action now render without one.
+  - Three handlers were bound to elements that no longer exist in the page and have been removed.
+
+- **Uninstall Overrode the Choice It Offered (`install.ps1`, `gui/Server.ps1`, `gui/index.html`, `gui/app.js`)**:
+  - The uninstall dialog offered a choice about restoring Windows defaults and the installer discarded it. The decision was initialised to restore, and the only branch that could change it required an interactive session, which an uninstall started from the desktop interface never is. Every uninstall therefore reverted the update settings, including one where the box had been cleared. Someone who installed FedUpDate to stop Windows restarting on its own, and who wanted to keep that after removing the application, had it taken back without being told.
+  - The outcome is now an explicit value rather than a pair of switches with a fallback. An unattended run that does not state one is refused, because a machine's update policy is not something to be chosen on the owner's behalf.
+
+- **Reverting Settings Failed Silently Without Administrator Rights (`core/RollbackEngine.ps1`, `fedupdate.ps1`)**:
+  - The values FedUpDate writes live under HKLM, so reverting them needs elevation. Rollback never asked for any. Run from an ordinary session the writes failed behind a suppressed error and the caller reported that Windows defaults had been restored, when nothing had been. Choosing to restore during an uninstall therefore did nothing at all unless the session already happened to be elevated.
+  - Rollback now asks for elevation and re-enters through the command line, which is how the anti-tamper watchdog has always handled the same problem. A declined prompt reports that nothing was reverted rather than claiming success.
+  - `fedupdate rollback -All` reverts every recorded transaction. It is the scope the uninstaller uses and the one the elevated re-entry returns through.
+
+- **The Alias Was Left Behind in Another Host's Profile (`install.ps1`)**:
+  - `$PROFILE` resolves differently per host: PowerShell 7 uses `Documents\PowerShell` and Windows PowerShell uses `Documents\WindowsPowerShell`. Uninstall cleaned only the profile belonging to whichever host it happened to run under, so an installation made from one and removed from the other left a `fedupdate` function behind pointing at a directory that no longer existed, and every new session in that host reported a broken command.
+  - Uninstall now clears the alias from every profile an installation could have written to, covering both hosts, both profile file names and a redirected Documents folder.
+
+- **Uninstall Left the Application Behind (`install.ps1`)**:
+  - Nothing removed the installation directory or the desktop interface's browser profile, while the closing message reported that the removal had completed. A directory cannot be deleted by the process standing in it, so removal is now handed to a detached step that waits for the uninstaller to exit and then clears both paths, retrying while the last file handles are released.
+  - The uninstall command was also assembled by joining its arguments into a single string, which would have split an installation path containing a space into separate arguments.
+
+### Added
+
+- **Restart Status Separates Required From Routine (`core/RebootEngine.ps1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`, `gui/index.html`, `gui/styles.css`)**:
+  - A scan reports one of three states rather than a yes or a no. The command line labels the state and lists the affected paths, the text interface carries a third badge for queued cleanup, and the notification centre presents routine cleanup as an informational entry with no restart controls, keeping the urgent entry for a restart the system is genuinely waiting on.
+
+- **Correlation With the Last Restart (`core/RebootEngine.ps1`)**:
+  - Pending work is dated against the last restart. Anything older has already survived one, and every interface now says so, instead of leaving a restart that cannot resolve the condition as the only thing on offer.
+
+- **Reboot Engine Checks (`audit/audit-reboot.ps1`)**:
+  - Forty four checks covering the parsing, the grading and every policy branch. They grade captured data rather than the machine they run on, and the policies reach their restart, shutdown and scheduling calls through stand ins, so no check is able to restart or shut anything down.
+
+- **Uninstall Decision Checks (`audit/audit-uninstall.ps1`)**:
+  - Thirty one checks covering every combination of switches the interfaces can send, including the ones that previously reverted the settings regardless of what was chosen, along with the elevation path and the profile cleanup. The decision is evaluated rather than executed, so no check uninstalls anything.
+
+### Changed
+
+- **Default Restart Policy (`core/Config.ps1`, `gui/index.html`)**:
+  - A new installation defaults to Smart, which reports what is pending and leaves the decision to you. An existing configuration file is left as it is.
+
+- **Uninstall Presents Three Outcomes (`install.ps1`, `gui/index.html`, `gui/styles.css`)**:
+  - Restore Windows defaults, or keep the settings and keep the ledger, or keep the settings and delete the ledger. Keeping the settings while deleting the ledger leaves changes on the machine with no record of what they were, so it is now a deliberate choice with its consequence stated rather than a combination of two boxes that happened to produce it.
+  - The dialog and the prompt both state that the on-boot enforcer is removed with the application, so settings that are kept are no longer maintained and Windows may revert them later.
+
+---
+
 ## [0.5.6-beta] - 2026-08-22
 
 ### Added

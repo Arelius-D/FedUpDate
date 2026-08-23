@@ -23,8 +23,13 @@ function Get-FedDefaultConfig {
             wingetApps          = $true
             storeApps           = $true
         }
-        rebootPolicy = "Notify" # "Never", "Notify", "Prompt", "Schedule", "Force"
+        # "Smart" reports what is pending and leaves the decision to the user.
+        # "Never", "Notify", "Prompt", "Schedule", "Force" and "Shutdown" are
+        # also accepted. The three that power the machine off will not act on
+        # routine installer cleanup unless allowRebootOnAdvisory is set.
+        rebootPolicy = "Smart"
         rebootScheduleTime = "03:00"
+        allowRebootOnAdvisory = $false
         watchdog    = [PSCustomObject]@{
             enabled                    = $true
             enforceOnBoot              = $true

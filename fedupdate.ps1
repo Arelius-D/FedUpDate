@@ -90,7 +90,25 @@ switch ($Command.ToLower()) {
         Write-Host "WinGet Updates Pending:      $($result.WingetUpdateCount)"
         Write-Host "Microsoft Store Updates:     $($result.StoreUpdateCount)"
         Write-Host "Microsoft Store App:         $(if ($result.StoreInstalled) { "Installed (v$($result.StoreVersion))" } else { "Not Available" })"
-        Write-Host "Reboot Required:             $($result.IsRebootRequired)"
+        $rebootLabel = switch ($result.RebootSeverity) {
+            "Required" { "Yes" }
+            "Advisory" { "No, routine cleanup is queued for the next restart" }
+            Default    { "No" }
+        }
+        Write-Host "Reboot Required:             $rebootLabel"
+        foreach ($reason in @($result.RebootReasons)) {
+            Write-Host "  - $reason"
+        }
+        $pendingFiles = @($result.RebootPendingFiles)
+        foreach ($file in ($pendingFiles | Select-Object -First 10)) {
+            Write-Host "      $file"
+        }
+        if ($pendingFiles.Count -gt 10) {
+            Write-Host "      and $($pendingFiles.Count - 10) more"
+        }
+        if ($result.RebootSurvivedBoot) {
+            Write-Host "  Note: some pending items predate the last restart, so restarting again will not clear them."
+        }
         Write-Host "Anti-Tamper Drift:           $($result.WatchdogDrifted)`n"
     }
     "check" {
@@ -113,6 +131,26 @@ switch ($Command.ToLower()) {
             -WingetPackageIds $Packages `
             -RebootPolicyOverride $rebootPol `
             -WhatIf:$isWhatIf
+
+        # 'Prompt' deliberately leaves the asking to the interface, because the
+        # engine has no console of its own. A non interactive session is left
+        # alone rather than being blocked on a question nobody can answer.
+        if ($res.RebootResult.Action -eq "PromptRequired") {
+            if ([Environment]::UserInteractive) {
+                Write-Host ""
+                foreach ($reason in @($res.RebootResult.State.Reasons)) {
+                    Write-Host "  - $reason"
+                }
+                $answer = Read-Host "Restart now to finish the pending work? [y/N]"
+                if ($answer -match '^(y|yes)$') {
+                    Invoke-FedRebootPolicy -PolicyOverride "Force" | Out-Null
+                } else {
+                    Write-Host "[OK] Restart postponed." -ForegroundColor Green
+                }
+            } else {
+                Write-Host "[!] A restart is pending. Restart when convenient to finish it." -ForegroundColor Yellow
+            }
+        }
     }
     "watchdog" {
         switch ($Action.ToLower()) {
@@ -141,7 +179,11 @@ switch ($Command.ToLower()) {
         }
     }
     "rollback" {
-        if ($Latest) {
+        if ($All) {
+            # The scope the uninstaller uses, and the one the elevated
+            # re-entry lands on when a rollback needs administrator rights.
+            Restore-FedState -All -WhatIf:$isWhatIf
+        } elseif ($Latest) {
             Restore-FedState -Latest -WhatIf:$isWhatIf
         } elseif ($TransactionId) {
             Restore-FedState -TransactionId $TransactionId -WhatIf:$isWhatIf

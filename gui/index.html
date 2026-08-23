@@ -269,7 +269,8 @@
               <div class="card-actions">
                 <span class="badge-pill badge-recommended">Recommended</span>
                 <select class="fluent-select" id="rebootPolicySelect">
-                  <option value="Notify" selected>Notify Only (Never auto-reboot)</option>
+                  <option value="Smart" selected>Smart (report what is pending, never restart on its own)</option>
+                  <option value="Notify">Notify Only (Never auto-reboot)</option>
                   <option value="Never">Strict Never Reboot</option>
                   <option value="Schedule">Schedule at Quiet Hours (03:00)</option>
                   <option value="Prompt">Interactive Prompt</option>
@@ -688,15 +689,20 @@
             <h2 class="modal-title">Uninstall FedUpDate</h2>
             <p class="modal-subtitle">You are about to remove FedUpDate from your system.</p>
             <div class="modal-options">
-              <label class="modal-checkbox-label">
-                <input type="checkbox" id="uninstRestoreOSCheck" checked>
-                <span><strong>Restore Windows Defaults</strong> (Re-enables default update services & removes scheduled tasks)</span>
+              <label class="modal-choice-label">
+                <input type="radio" name="uninstMode" value="RestoreDefaults" checked>
+                <span><strong>Restore Windows defaults</strong><br>Undo every change FedUpDate made to update services and policies.</span>
               </label>
-              <label class="modal-checkbox-label">
-                <input type="checkbox" id="uninstKeepBackupsCheck" checked>
-                <span><strong>Preserve Backups & Logs</strong> (Saves state ledger & .bak snapshots to Documents\FedUpDate-Backups)</span>
+              <label class="modal-choice-label">
+                <input type="radio" name="uninstMode" value="KeepSettings">
+                <span><strong>Keep my settings, keep the ledger</strong><br>Your update settings stay as they are. The ledger is saved to Documents\FedUpDate-Backups, which is what lets you revert them by hand later.</span>
+              </label>
+              <label class="modal-choice-label">
+                <input type="radio" name="uninstMode" value="KeepSettingsAndPurge">
+                <span><strong>Keep my settings, delete everything</strong><br>Your update settings stay and the ledger is deleted, so they become permanent.</span>
               </label>
             </div>
+            <p class="modal-note">The on-boot enforcer is removed with the application in every case, so kept settings are no longer defended and Windows may revert them later.</p>
             <div class="modal-actions">
               <button class="btn btn-secondary" id="uninstCancelBtn">Cancel</button>
               <button class="btn btn-danger" id="uninstConfirmBtn">Confirm & Uninstall</button>

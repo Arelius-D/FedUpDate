@@ -41,6 +41,9 @@ function Start-FedScan {
         StoreUpdateCount   = [int]$storeStatus.UpdateCount
         StoreUpdates       = @($storeStatus.Updates)
         IsRebootRequired   = [bool]$rebootState.IsRebootRequired
+        RebootSeverity     = [string]$rebootState.Severity
+        RebootPendingFiles = @($rebootState.PendingFiles)
+        RebootSurvivedBoot = [bool]$rebootState.SurvivedLastBoot
         RebootReasons      = @($rebootState.Reasons)
         WatchdogDrifted    = [bool]$watchdogAudit.HasDrifted
         WatchdogDriftItems = @($watchdogAudit.DriftItems)
@@ -55,7 +58,7 @@ function Start-FedScan {
         $summary | ConvertTo-Json -Depth 6 | Set-Content -Path $cacheFile -Encoding UTF8 -Force
     } catch { }
 
-    Write-FedLog "Audit Complete: $(@($osUpdates).Count) OS KBs, $(@($wingetUpdates).Count) WinGet apps, $([int]$storeStatus.UpdateCount) Store apps, RebootRequired: $($rebootState.IsRebootRequired), WatchdogDrift: $($watchdogAudit.HasDrifted)" -Level "SUCCESS" -Component "Engine"
+    Write-FedLog "Audit Complete: $(@($osUpdates).Count) OS KBs, $(@($wingetUpdates).Count) WinGet apps, $([int]$storeStatus.UpdateCount) Store apps, Reboot: $($rebootState.Severity), WatchdogDrift: $($watchdogAudit.HasDrifted)" -Level "SUCCESS" -Component "Engine"
 
     return $summary
 }
@@ -132,4 +135,4 @@ function Start-FedUpdate {
     return $results
 }
 
-Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Reset-FedConfig, Get-FedRebootState, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Reset-FedConfig, Get-FedRebootState, Get-FedRebootSignalData, Get-FedRebootVerdict, ConvertFrom-FedPendingFileRename, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate -ErrorAction SilentlyContinue

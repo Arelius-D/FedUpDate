@@ -22,14 +22,19 @@ param(
     [Parameter()]
     [switch]$Uninstall,
 
+    # What happens to the update settings FedUpDate applied, and to the ledger
+    # that records them. There is deliberately no default. A machine's update
+    # policy belongs to the person using it, so an unattended run has to state
+    # the outcome it wants rather than have one chosen on its behalf.
+    #
+    #   RestoreDefaults       undo every change, then remove everything
+    #   KeepSettings          leave the settings in place and keep the ledger,
+    #                         so they can still be reverted by hand later
+    #   KeepSettingsAndPurge  leave the settings in place and delete the ledger,
+    #                         which makes them permanent
     [Parameter()]
-    [switch]$RestoreOSDefaults,
-
-    [Parameter()]
-    [switch]$KeepBackups,
-
-    [Parameter()]
-    [switch]$PurgeAll,
+    [ValidateSet("RestoreDefaults", "KeepSettings", "KeepSettingsAndPurge")]
+    [string]$UninstallMode,
 
     [Parameter()]
     [switch]$NonInteractive,
@@ -60,6 +65,41 @@ $PayloadMarker = "fedupdate.ps1"
 # ==============================================================================
 # Helpers
 # ==============================================================================
+
+function Get-FedProfilePath {
+    <#
+        Every PowerShell profile this installation could have written to.
+
+        $PROFILE resolves per host: PowerShell 7 uses Documents\PowerShell and
+        Windows PowerShell uses Documents\WindowsPowerShell. An install done
+        from one host and an uninstall run from the other would clean a
+        directory that never held the alias, and leave behind a function
+        pointing at a folder that no longer exists. Install writes to the host
+        it was run from, because PATH already covers the other one, but
+        uninstall has to consider all of them.
+    #>
+    $roots = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($docs in @([Environment]::GetFolderPath('MyDocuments'), (Join-Path $env:USERPROFILE "Documents"))) {
+        if ([string]::IsNullOrWhiteSpace($docs)) { continue }
+        $roots.Add((Join-Path $docs "PowerShell"))
+        $roots.Add((Join-Path $docs "WindowsPowerShell"))
+    }
+
+    # Whatever the running host reports, in case Documents is redirected
+    # somewhere neither of the above finds.
+    foreach ($known in @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
+        if ($known) { $roots.Add((Split-Path -Parent $known)) }
+    }
+
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($root in ($roots | Where-Object { $_ } | Select-Object -Unique)) {
+        $paths.Add((Join-Path $root "profile.ps1"))
+        $paths.Add((Join-Path $root "Microsoft.PowerShell_profile.ps1"))
+    }
+
+    return @($paths | Select-Object -Unique)
+}
 
 function Remove-FedProfileHook {
     <#
@@ -112,6 +152,81 @@ function Read-FedYesNo {
         if ($answer -match '^(y|yes)$') { return $true }
         if ($answer -match '^(n|no)$')  { return $false }
         Write-Host "  Please answer y or n." -ForegroundColor Yellow
+    }
+}
+
+function Read-FedUninstallMode {
+    <#
+        Asks what should become of the update settings and of the ledger that
+        records them. Follows the same rule as Read-FedYesNo: an unrecognised
+        answer re-asks rather than silently taking a branch the user did not
+        choose. There is no default, because every branch here is a decision
+        about the machine's own update policy.
+    #>
+    Write-Host ""
+    Write-Host "  What should happen to the update settings FedUpDate applied?" -ForegroundColor Cyan
+    Write-Host "    1  Restore Windows defaults. Undo every change FedUpDate made."
+    Write-Host "    2  Keep the settings, and keep the ledger so they can be reverted later."
+    Write-Host "    3  Keep the settings, and delete the ledger. They become permanent."
+    Write-Host ""
+    Write-Host "  The on-boot enforcer is removed with the application in every case, so" -ForegroundColor Gray
+    Write-Host "  kept settings are no longer defended and Windows may revert them later." -ForegroundColor Gray
+    Write-Host ""
+
+    while ($true) {
+        $answer = (Read-Host "  Choose 1, 2 or 3").Trim()
+        switch ($answer) {
+            "1"     { return "RestoreDefaults" }
+            "2"     { return "KeepSettings" }
+            "3"     { return "KeepSettingsAndPurge" }
+            Default { Write-Host "  Please answer 1, 2 or 3." -ForegroundColor Yellow }
+        }
+    }
+}
+
+function Start-FedDetachedRemoval {
+    <#
+        Removes directories that cannot be deleted by the process standing in
+        them. A detached host waits for this process to exit, then clears each
+        path, retrying briefly while the last file handles are released. This
+        is what lets an uninstall remove the application it is running from
+        without leaving the removal until the next restart.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Path
+    )
+
+    $targets = @($Path | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    if ($targets.Count -eq 0) { return $true }
+
+    $quoted = ($targets | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ","
+
+    $waiter = @"
+try { Wait-Process -Id $PID -Timeout 120 -ErrorAction SilentlyContinue } catch { }
+Start-Sleep -Milliseconds 750
+foreach (`$target in @($quoted)) {
+    for (`$attempt = 0; `$attempt -lt 12; `$attempt++) {
+        if (-not (Test-Path -LiteralPath `$target)) { break }
+        Remove-Item -LiteralPath `$target -Recurse -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 400
+    }
+}
+"@
+
+    # Encoded so that no path quoting has to survive a command line.
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($waiter))
+
+    $hostExe = try { (Get-Process -Id $PID).Path } catch { $null }
+    if (-not $hostExe) { $hostExe = "powershell.exe" }
+
+    try {
+        Start-Process -FilePath $hostExe `
+            -ArgumentList @("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", $encoded) `
+            -WorkingDirectory ([IO.Path]::GetTempPath()) `
+            -WindowStyle Hidden | Out-Null
+        return $true
+    } catch {
+        return $false
     }
 }
 
@@ -308,51 +423,63 @@ if ($Uninstall) {
     Write-Host "[INFO] Found installation at: $scriptDir" -ForegroundColor Cyan
 
     $enginePath = Join-Path $scriptDir "core\Engine.psm1"
+    $dataDir = Join-Path $scriptDir "data"
 
-    # Step 1: Restore OS Defaults & Revert State Ledger
-    # Restoring Windows Update defaults is the default action: leaving a machine
-    # with update services disabled after an uninstall is never the safe outcome.
-    $shouldRestore = $true
-    if ($RestoreOSDefaults) {
-        $shouldRestore = $true
-    } elseif (-not $NonInteractive) {
-        $shouldRestore = Read-FedYesNo -Question "Restore original Windows Update services and settings before uninstalling?" -Default "Y"
+    # Step 1: Establish the outcome. It is asked for, passed in, or refused.
+    # It is never assumed, because every branch decides what happens to update
+    # policy on a machine that belongs to somebody else.
+    $mode = $UninstallMode
+    if (-not $mode) {
+        if ($NonInteractive) {
+            Write-Host "[ERROR] -NonInteractive requires -UninstallMode." -ForegroundColor Red
+            Write-Host "        Choose RestoreDefaults, KeepSettings or KeepSettingsAndPurge." -ForegroundColor Red
+            Write-Host "        Nothing has been changed." -ForegroundColor Red
+            return
+        }
+        $mode = Read-FedUninstallMode
     }
 
-    if ($shouldRestore -and (Test-Path $enginePath)) {
+    $restoreState = ($mode -eq "RestoreDefaults")
+    $keepLedger = ($mode -eq "KeepSettings")
+
+    # Step 2: Settings, and the tasks that maintain them. The enforcer and any
+    # scheduled run are removed whatever the choice, because both invoke the
+    # application and neither can do anything once it is gone.
+    if (Test-Path $enginePath) {
         try {
-            Write-Host "Reverting OS settings & re-enabling Windows Update defaults..." -ForegroundColor Cyan
             Import-Module $enginePath -Force -DisableNameChecking
-            Restore-FedState -All -ErrorAction SilentlyContinue | Out-Null
+
+            if ($restoreState) {
+                Write-Host "Reverting settings and re-enabling Windows Update defaults..." -ForegroundColor Cyan
+                Restore-FedState -All -ErrorAction SilentlyContinue | Out-Null
+                Write-Host "[OK] Windows defaults restored." -ForegroundColor Green
+            } else {
+                Write-Host "[OK] Update settings left exactly as they are." -ForegroundColor Green
+            }
+
             Uninstall-FedWatchdogTask -ErrorAction SilentlyContinue | Out-Null
             Remove-FedScheduleTask -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "[OK] Restored Windows default services and uninstalled background tasks." -ForegroundColor Green
+            Write-Host "[OK] Removed the on-boot enforcer and any scheduled run." -ForegroundColor Green
         } catch {
-            Write-Host "[WARN] Could not fully revert state: $_" -ForegroundColor Yellow
+            Write-Host "[WARN] Could not complete the settings step: $_" -ForegroundColor Yellow
         }
     }
 
-    # Step 2: Handle Backup Snapshots & Logs (.bak files)
-    # Keeping copies of logs and snapshots is opt-in, so a plain uninstall leaves
-    # nothing behind.
-    $shouldKeep = $KeepBackups.IsPresent
-    if (-not $NonInteractive -and -not $KeepBackups -and -not $PurgeAll) {
-        $shouldKeep = Read-FedYesNo -Question "Keep backup snapshots and logs in Documents\FedUpDate-Backups?" -Default "N"
-    }
-
-    $dataDir = Join-Path $scriptDir "data"
-    if ($shouldKeep -and (Test-Path $dataDir)) {
+    # Step 3: The ledger. Keeping the settings without it would leave changes
+    # on the machine with no record of what they were, so it is copied out
+    # before the installation directory goes.
+    if ($keepLedger -and (Test-Path $dataDir)) {
         $exportDir = "$env:USERPROFILE\Documents\FedUpDate-Backups"
         try {
             if (-not (Test-Path $exportDir)) { New-Item -ItemType Directory -Path $exportDir -Force | Out-Null }
             Copy-Item -Path "$dataDir\*" -Destination $exportDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "[OK] Preserved state ledger & backup files to: $exportDir" -ForegroundColor Green
+            Write-Host "[OK] Ledger, snapshots and logs saved to: $exportDir" -ForegroundColor Green
         } catch {
-            Write-Host "[WARN] Failed to export backups: $_" -ForegroundColor Yellow
+            Write-Host "[WARN] Failed to export the ledger: $_" -ForegroundColor Yellow
         }
     }
 
-    # Step 3: Remove from User PATH
+    # Step 4: Remove from User PATH
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -like "*$scriptDir*") {
         $newPath = ($userPath -split ";" | Where-Object { $_ -ne $scriptDir -and $_ -ne "" }) -join ";"
@@ -360,17 +487,16 @@ if ($Uninstall) {
         Write-Host "[OK] Removed from User PATH." -ForegroundColor Green
     }
 
-    # Step 4: Clean PowerShell profile hooks
-    $profilePaths = @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost) | Select-Object -Unique
-    foreach ($p in $profilePaths) {
-        if ($p -and (Test-Path $p)) {
+    # Step 5: Clean PowerShell profile hooks
+    foreach ($p in (Get-FedProfilePath)) {
+        if (Test-Path $p) {
             if (Remove-FedProfileHook -ProfilePath $p) {
                 Write-Host "[OK] Removed alias from profile: $p" -ForegroundColor Green
             }
         }
     }
 
-    # Step 5: Remove Shortcuts
+    # Step 6: Remove Shortcuts
     $startMenuDir = Get-FedShellFolder -Folder Programs -Fallback "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
     $desktopDir = Get-FedShellFolder -Folder DesktopDirectory -Fallback "$env:USERPROFILE\Desktop"
     $shortcutsToRemove = @($startMenuDir, $desktopDir) |
@@ -383,15 +509,30 @@ if ($Uninstall) {
         }
     }
 
-    # Step 6: Clean Data Folder if Purging
-    if ($PurgeAll -or (-not $shouldKeep)) {
-        if (Test-Path $dataDir) {
-            Remove-Item -Path $dataDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "[OK] Cleaned local data folder." -ForegroundColor Green
-        }
+    # Step 7: Remove the application itself, including the desktop interface's
+    # browser profile, which lives outside the installation directory. This
+    # cannot be done from inside the directory being deleted, so it is handed
+    # to a detached process that waits for this one to exit.
+    $webViewDir = Join-Path $env:LOCALAPPDATA "FedUpDate"
+    $removalTargets = @($scriptDir, $webViewDir)
+
+    if (Start-FedDetachedRemoval -Path $removalTargets) {
+        Write-Host "[OK] Application files are removed as this process exits." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Could not remove the following. Delete them by hand:" -ForegroundColor Yellow
+        foreach ($t in $removalTargets) { Write-Host "         $t" -ForegroundColor Yellow }
     }
 
-    Write-Host "`nFedUpDate uninstalled cleanly and successfully." -ForegroundColor Green
+    Write-Host "`nFedUpDate uninstalled." -ForegroundColor Green
+    if ($keepLedger) {
+        Write-Host "Update settings were kept. The ledger is in Documents\FedUpDate-Backups," -ForegroundColor Cyan
+        Write-Host "which is what makes those settings reversible by hand later." -ForegroundColor Cyan
+    } elseif (-not $restoreState) {
+        Write-Host "Update settings were kept and the ledger was deleted, so they are permanent." -ForegroundColor Cyan
+    }
+    if (-not $restoreState) {
+        Write-Host "Nothing enforces them on boot any more, so Windows may revert them." -ForegroundColor Gray
+    }
     return
 }
 

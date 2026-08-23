@@ -554,24 +554,35 @@ try {
                     Send-FedResponse -Context $context -Content $logs -ContentType "application/json"
                 }
                 "/api/reboot/force" {
-                    Invoke-FedRebootPolicy -PolicyOverride "Force" | Out-Null
+                    Invoke-FedRebootPolicy -PolicyOverride "Force" -UserInitiated | Out-Null
                     Send-FedResponse -Context $context -Content @{ success = $true } -ContentType "application/json"
                 }
                 "/api/reboot/shutdown" {
-                    Invoke-FedRebootPolicy -PolicyOverride "Shutdown" | Out-Null
+                    Invoke-FedRebootPolicy -PolicyOverride "Shutdown" -UserInitiated | Out-Null
                     Send-FedResponse -Context $context -Content @{ success = $true } -ContentType "application/json"
                 }
                 "/api/uninstall" {
                     $body = Read-RequestBody -Context $context
+
+                    # The dialog has already asked. Pass that answer through, and
+                    # reject anything else rather than letting the installer pick.
+                    $mode = [string]$body.mode
+                    if ($mode -notin @("RestoreDefaults", "KeepSettings", "KeepSettingsAndPurge")) {
+                        Send-FedResponse -Context $context -Content @{ success = $false; error = "Unrecognised uninstall mode." } -ContentType "application/json"
+                        break
+                    }
+
                     $installer = Join-Path $scriptRoot "install.ps1"
-                    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installer, "-Uninstall")
-                    if ($body.restoreOS) { $argList += "-RestoreOSDefaults" }
-                    if ($body.keepBackups) { $argList += "-KeepBackups" } else { $argList += "-PurgeAll" }
-                    $argList += "-NonInteractive"
-                    
+                    $argList = @(
+                        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installer,
+                        "-Uninstall", "-UninstallMode", $mode, "-NonInteractive"
+                    )
+
+                    # Passed as an array so an installation path containing a
+                    # space is not split into separate arguments.
                     $pwshExe = (Get-Process -Id $PID).Path
-                    Start-Process -FilePath $pwshExe -ArgumentList ($argList -join " ") -WindowStyle Hidden
-                    
+                    Start-Process -FilePath $pwshExe -ArgumentList $argList -WindowStyle Hidden
+
                     Send-FedResponse -Context $context -Content @{ success = $true } -ContentType "application/json"
                     Start-Sleep -Milliseconds 800
                     $listener.Stop()

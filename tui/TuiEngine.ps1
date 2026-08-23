@@ -22,17 +22,30 @@ function Show-FedHeader {
     Write-Host "`e[90m--------------------------------------------------------------------------------`e[0m"
 }
 
+# Three states rather than two: cleanup queued by an installer is not the same
+# thing as the system waiting on a restart, and colouring it red taught people
+# to ignore the badge.
+function Get-FedRebootBadge {
+    param([string]$Severity)
+
+    switch ($Severity) {
+        "Required" { return "`e[41;97m PENDING REBOOT `e[0m" }
+        "Advisory" { return "`e[44;97m CLEANUP QUEUED `e[0m" }
+        Default    { return "`e[42;30m CLEAN `e[0m" }
+    }
+}
+
 function Show-FedStatusBar {
     param($ScanResult)
 
     if ($null -eq $ScanResult) {
         $reboot = Get-FedRebootState
-        $rebootBadge = if ($reboot.IsRebootRequired) { "`e[41;97m PENDING REBOOT `e[0m" } else { "`e[42;30m CLEAN `e[0m" }
+        $rebootBadge = Get-FedRebootBadge -Severity $reboot.Severity
         Write-Host " Status: $rebootBadge | Ready for scan or update"
     } else {
         $osCount = $ScanResult.OSUpdateCount
         $wgCount = $ScanResult.WingetUpdateCount
-        $rebootBadge = if ($ScanResult.IsRebootRequired) { "`e[41;97m PENDING REBOOT `e[0m" } else { "`e[42;30m CLEAN `e[0m" }
+        $rebootBadge = Get-FedRebootBadge -Severity $ScanResult.RebootSeverity
         $guardBadge = if ($ScanResult.WatchdogDrifted) { "`e[43;30m DRIFT DETECTED `e[0m" } else { "`e[42;30m SHIELD ACTIVE `e[0m" }
 
         Write-Host " `e[1mOS Updates:`e[0m `e[36m$osCount KBs`e[0m | `e[1mWinGet:`e[0m `e[35m$wgCount Apps`e[0m | `e[1mStore:`e[0m `e[32mSynced`e[0m | `e[1mReboot:`e[0m $rebootBadge | `e[1mGuard:`e[0m $guardBadge"
@@ -71,7 +84,24 @@ function Start-FedTUI {
         switch ($choice) {
             "1" {
                 Write-Host "`n`e[33mExecuting Unified Update All...`e[0m`n"
-                Start-FedUpdate -All
+                $updateRun = Start-FedUpdate -All
+
+                # The engine returns rather than asking, so the asking happens here.
+                if ($updateRun.RebootResult.Action -eq "PromptRequired") {
+                    Write-Host ""
+                    foreach ($reason in @($updateRun.RebootResult.State.Reasons)) {
+                        Write-Host "   - $reason"
+                    }
+                    Write-Host "`n`e[93mRestart now to finish the pending work? [y/N]`e[0m " -NoNewline
+                    $answer = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
+                    Write-Host $answer
+                    if ($answer -eq "Y") {
+                        Invoke-FedRebootPolicy -PolicyOverride "Force" | Out-Null
+                    } else {
+                        Write-Host "`e[32mRestart postponed.`e[0m"
+                    }
+                }
+
                 $lastScan = Start-FedScan
                 Write-Host "`n`e[90mPress any key to continue...`e[0m"
                 [Console]::ReadKey($true) | Out-Null
@@ -105,10 +135,31 @@ function Start-FedTUI {
                 }
 
                 Write-Host "`n`e[1;37m--- Reboot Flags ---`e[0m"
-                if ($lastScan.IsRebootRequired) {
-                    Write-Host " `e[91mPending Reboot Required:`e[0m $($lastScan.RebootReasons -join '; ')"
-                } else {
-                    Write-Host " `e[32mNo pending reboot required.`e[0m"
+                switch ($lastScan.RebootSeverity) {
+                    "Required" {
+                        Write-Host " `e[91mA restart is required.`e[0m"
+                    }
+                    "Advisory" {
+                        Write-Host " `e[94mNo restart is required. Routine cleanup is queued for the next one.`e[0m"
+                    }
+                    Default {
+                        Write-Host " `e[32mNothing is pending.`e[0m"
+                    }
+                }
+                foreach ($reason in @($lastScan.RebootReasons)) {
+                    Write-Host "   - $reason"
+                }
+                # Naming the paths is what makes the state actionable, instead of
+                # leaving a count that cannot be acted on.
+                $pendingFiles = @($lastScan.RebootPendingFiles)
+                foreach ($file in ($pendingFiles | Select-Object -First 10)) {
+                    Write-Host "     `e[90m$file`e[0m"
+                }
+                if ($pendingFiles.Count -gt 10) {
+                    Write-Host "     `e[90mand $($pendingFiles.Count - 10) more`e[0m"
+                }
+                if ($lastScan.RebootSurvivedBoot) {
+                    Write-Host " `e[93mSome pending items predate the last restart, so restarting again will not clear them.`e[0m"
                 }
 
                 Write-Host "`n`e[90mPress any key to continue...`e[0m"

@@ -379,6 +379,35 @@ function Restore-FedState {
         [switch]$WhatIf
     )
 
+    # Reverting registry values under HKLM and service configuration needs
+    # administrator rights. The watchdog already handles that by re-entering
+    # through the CLI elevated, and rollback does the same, so a restore asked
+    # for from an ordinary shell completes rather than failing quietly behind
+    # SilentlyContinue while the caller reports that it succeeded.
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin -and -not $WhatIf) {
+        try {
+            $scriptRoot = Split-Path -Parent $PSScriptRoot
+            $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+            $scope = if ($All) { "-All" }
+                     elseif ($TransactionId) { "-TransactionId `"$TransactionId`"" }
+                     else { "-Latest" }
+
+            Write-FedLog "Rollback needs administrator rights. Requesting elevation..." -Level "INFO" -Component "Rollback"
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" rollback $scope" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+            if ($null -ne $p -and $p.ExitCode -eq 0) {
+                Write-FedLog "Elevated rollback completed successfully." -Level "SUCCESS" -Component "Rollback"
+                return $true
+            }
+            Write-FedLog "The elevated rollback did not complete successfully." -Level "ERROR" -Component "Rollback"
+            return $false
+        } catch {
+            # A declined prompt is an answer, not a failure to work around.
+            Write-FedLog "Elevation was not granted ($($_.Exception.Message)). Nothing has been reverted; changes under HKLM need an elevated session." -Level "ERROR" -Component "Rollback"
+            return $false
+        }
+    }
+
     $ledger = @(Get-FedLedger)
     if ($ledger.Count -eq 0) {
         Write-FedLog "No state ledger entries found to rollback." -Level "WARN" -Component "Rollback"

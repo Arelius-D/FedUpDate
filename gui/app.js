@@ -377,15 +377,6 @@ function setupEventListeners() {
     try { navigator.sendBeacon(`${API_BASE}/api/shutdown`); } catch {}
   });
 
-  // Reboot Handlers
-  document.getElementById('postponeRebootBtn')?.addEventListener('click', () => {
-    document.getElementById('rebootInfoBar')?.classList.add('hidden');
-  });
-  document.getElementById('restartNowBtn')?.addEventListener('click', async () => {
-    if (confirm("Are you sure you want to restart your PC now?")) {
-      await fetch(`${API_BASE}/api/reboot/force`, { method: 'POST' });
-    }
-  });
 
   // Uninstaller Modal Handlers
   const uninstModal = document.getElementById('uninstallModal');
@@ -396,8 +387,7 @@ function setupEventListeners() {
     uninstModal?.classList.add('hidden');
   });
   document.getElementById('uninstConfirmBtn')?.addEventListener('click', async () => {
-    const restoreOS = document.getElementById('uninstRestoreOSCheck')?.checked ?? true;
-    const keepBackups = document.getElementById('uninstKeepBackupsCheck')?.checked ?? false;
+    const mode = document.querySelector('input[name="uninstMode"]:checked')?.value || 'RestoreDefaults';
 
     setDockProgress("Uninstalling", "Restoring system defaults and cleaning up...", 50, true);
     uninstModal?.classList.add('hidden');
@@ -406,7 +396,7 @@ function setupEventListeners() {
       await fetch(`${API_BASE}/api/uninstall`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restoreOS, keepBackups })
+        body: JSON.stringify({ mode })
       });
       alert("FedUpDate has been cleanly uninstalled. The application will now exit.");
       window.close();
@@ -491,7 +481,7 @@ async function triggerScan() {
 function updateDashboardUI() {
   if (!state.scanData) return;
 
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, IsRebootRequired, RebootReasons, WatchdogDrifted } = state.scanData;
+  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted } = state.scanData;
 
   // OS Card
   const osEl = document.getElementById('osBadge');
@@ -533,7 +523,7 @@ function updateNotificationsUI() {
   if (!notifList || !state.scanData) return;
 
   const items = [];
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, IsRebootRequired, RebootReasons, WatchdogDrifted } = state.scanData;
+  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted } = state.scanData;
 
   if (WatchdogDrifted) {
     items.push({
@@ -547,17 +537,43 @@ function updateNotificationsUI() {
     });
   }
 
-  if (IsRebootRequired) {
+  // A restart the system is genuinely waiting on, and routine installer cleanup
+  // queued for the next restart, are different things and are shown differently.
+  // Presenting cleanup as an urgent alert is what trained people to ignore this
+  // list, because the alert never cleared.
+  if (RebootSeverity === 'Required') {
+    const staleNote = RebootSurvivedBoot
+      ? ' Some of this predates your last restart, so restarting again will not clear it.'
+      : '';
     items.push({
       id: 'reboot-pending',
       type: 'urgent',
       icon: '⚠️',
       title: 'System Reboot Required',
-      desc: (RebootReasons && RebootReasons.length > 0) ? RebootReasons.join(', ') : 'Pending restart to finalize updates.',
+      desc: ((RebootReasons && RebootReasons.length > 0)
+        ? RebootReasons.join(' ')
+        : 'A restart is needed to finish installing updates.') + staleNote,
       actions: [
         { text: 'Restart Now', handler: 'forceRestart()', class: 'btn-primary' },
         { text: 'Shut Down', handler: 'forceShutdown()', class: 'btn-secondary' }
       ]
+    });
+  } else if (RebootSeverity === 'Advisory') {
+    const files = (RebootPendingFiles || []).slice(0, 3);
+    const extra = (RebootPendingFiles || []).length - files.length;
+    const detail = files.length
+      ? ` Queued: ${files.join(', ')}${extra > 0 ? ` and ${extra} more` : ''}.`
+      : '';
+    items.push({
+      id: 'reboot-advisory',
+      type: 'info',
+      icon: 'ℹ️',
+      title: 'Cleanup Queued For Next Restart',
+      desc: ((RebootReasons && RebootReasons.length > 0)
+        ? RebootReasons.join(' ')
+        : 'An installer has queued files for removal at the next restart.')
+        + detail
+        + ' No action is needed.'
     });
   }
 
@@ -608,9 +624,10 @@ function updateNotificationsUI() {
         <span class="notif-item-title">${item.icon} ${escapeHtml(item.title)}</span>
       </div>
       <span class="notif-item-desc">${escapeHtml(item.desc)}</span>
+      ${(item.actions || item.actionHandler) ? `
       <div class="notif-item-actions">
         ${item.actions ? item.actions.map(act => `<button class="btn ${act.class || 'btn-secondary'} btn-sm" onclick="${act.handler}">${act.text}</button>`).join(' ') : `<button class="btn btn-secondary btn-sm" onclick="${item.actionHandler}">${item.actionText}</button>`}
-      </div>
+      </div>` : ''}
     </div>
   `).join('');
 }
@@ -730,7 +747,7 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
         winget: includeWinget,
         store: includeStore,
         whatif: isWhatIf,
-        rebootPolicy: document.getElementById('rebootPolicySelect')?.value || 'Notify'
+        rebootPolicy: document.getElementById('rebootPolicySelect')?.value || 'Smart'
       })
     });
 
