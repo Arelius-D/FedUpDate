@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.9-beta] - 2026-08-23
+
+### Fixed
+
+- **The Branding Splash Was Painted Over the Moment the Page First Drew (`gui/src/Program.cs`)**:
+  - The interface control hosts its own window handle, so it draws over the window's own content whatever the layout order says. It was left visible from the moment the window opened, which meant the first paint of the page covered the splash no matter when the splash had been told to leave. Holding the splash for longer, as the previous release did, changed nothing that could actually be seen.
+  - The interface is now hidden until the splash is released. The branding has the window to itself for as long as the first audit runs, and the dashboard appears only once that audit has finished rather than while it is still going. The control is hidden rather than collapsed, because a collapsed control is given no size and never creates the window handle the browser needs in order to start.
+
+---
+
 ## [0.5.8-beta] - 2026-08-23
 
 ### Fixed

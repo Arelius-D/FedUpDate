@@ -139,6 +139,16 @@ namespace FedUpDate.UI
             _webView = new WebView2();
             _webView.Margin = new Thickness(4);
             _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 20, 22, 34);
+
+            // The interface stays hidden until the splash is released. This is
+            // not decoration: the control hosts its own window handle, so once
+            // it has anything to draw it draws over the splash regardless of
+            // which sits higher in the layout. Without this the branding lasted
+            // only until the page first painted, whatever the release logic
+            // decided. Hidden rather than Collapsed, because a collapsed
+            // control is given no size and its handle is never created, which
+            // is what the browser needs in order to start at all.
+            _webView.Visibility = Visibility.Hidden;
             _rootGrid.Children.Add(_webView);
 
             _splashGrid = CreateNativeSplashView();
