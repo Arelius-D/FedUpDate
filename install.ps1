@@ -33,7 +33,6 @@ param(
     #   KeepSettingsAndPurge  leave the settings in place and delete the ledger,
     #                         which makes them permanent
     [Parameter()]
-    [ValidateSet("RestoreDefaults", "KeepSettings", "KeepSettingsAndPurge")]
     [string]$UninstallMode,
 
     [Parameter()]
@@ -61,6 +60,13 @@ $DefaultInstallPath = Join-Path $env:LOCALAPPDATA "Programs\FedUpDate"
 
 # The marker file that identifies a directory as a real FedUpDate payload.
 $PayloadMarker = "fedupdate.ps1"
+
+# The outcomes an uninstall can have. Declared here rather than as a ValidateSet
+# on the parameter itself: the documented installer runs through 'irm | iex',
+# which evaluates the parameter block in the caller's scope, and a validation
+# attribute on an optional string rejects its own empty default there. The value
+# is checked in the uninstall block instead.
+$FedUninstallModes = @("RestoreDefaults", "KeepSettings", "KeepSettingsAndPurge")
 
 # ==============================================================================
 # Helpers
@@ -429,6 +435,12 @@ if ($Uninstall) {
     # It is never assumed, because every branch decides what happens to update
     # policy on a machine that belongs to somebody else.
     $mode = $UninstallMode
+    if ($mode -and $mode -notin $FedUninstallModes) {
+        Write-Host "[ERROR] Unrecognised -UninstallMode '$mode'." -ForegroundColor Red
+        Write-Host "        Choose one of: $($FedUninstallModes -join ', ')" -ForegroundColor Red
+        Write-Host "        Nothing has been changed." -ForegroundColor Red
+        return
+    }
     if (-not $mode) {
         if ($NonInteractive) {
             Write-Host "[ERROR] -NonInteractive requires -UninstallMode." -ForegroundColor Red
