@@ -20,11 +20,13 @@ const state = {
 function signalAppReady() {
   if (window.chrome && window.chrome.webview) {
     try {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          window.chrome.webview.postMessage('app_ready');
-        });
-      });
+      // Sent directly, not from an animation frame. The host keeps this view
+      // hidden until it receives this message, and a view that is not being
+      // rendered is not given animation frames, so waiting for one here meant
+      // the message was never sent and the splash only ever left on its
+      // timeout. Waiting for a paint is pointless in any case: what the host
+      // is waiting to hear is that the first audit finished.
+      window.chrome.webview.postMessage('app_ready');
     } catch {}
   }
 }
@@ -270,6 +272,30 @@ function setupEventListeners() {
       }
     });
   }
+
+  // Changing channel changes which releases this installation is offered, so it
+  // is saved on its own rather than waiting for the Save button, and the check
+  // is re-run against the new channel immediately. The POST forces the server
+  // to drop its cached answer, which was taken for the previous channel.
+  document.getElementById('updateChannelSelect')?.addEventListener('change', async (e) => {
+    const channel = e.target.value === 'beta' ? 'beta' : 'stable';
+    const badge = document.getElementById('updateChannelBadge');
+    if (badge) badge.textContent = channel === 'beta' ? 'Beta' : 'Stable';
+
+    try {
+      await fetch(`${API_BASE}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updateChannel: channel })
+      });
+      await fetch(`${API_BASE}/api/version`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/changelog`, { method: 'POST' });
+      await loadVersionInfo();
+      setDockProgress("Saved", `Update channel set to ${channel}.`, 100, false);
+    } catch (err) {
+      setDockProgress("Error", `Could not change channel: ${err.message}`, 0, false);
+    }
+  });
 
     document.getElementById('notifDismissAllBtn')?.addEventListener('click', () => {
       notifFlyout.classList.add('hidden');
@@ -1029,6 +1055,14 @@ function populateConfigUI() {
     if (rbSelect) rbSelect.value = cfg.rebootPolicy;
   }
 
+  // Anything unrecognised reads as stable, matching what the engine decides,
+  // so the control never claims a channel the engine is not following.
+  const channel = String(cfg.updateChannel || '').toLowerCase() === 'beta' ? 'beta' : 'stable';
+  const chSelect = document.getElementById('updateChannelSelect');
+  if (chSelect) chSelect.value = channel;
+  const chBadge = document.getElementById('updateChannelBadge');
+  if (chBadge) chBadge.textContent = channel === 'beta' ? 'Beta' : 'Stable';
+
   if (cfg.winget && cfg.winget.excluded_packages) {
     const exInput = document.getElementById('exclusionsInput');
     if (exInput) exInput.value = cfg.winget.excluded_packages.join(', ');
@@ -1194,22 +1228,38 @@ async function loadVersionInfo() {
 
   if (badge) badge.textContent = `v${info.Current}`;
 
+  // "Up to date" is only true when a release was actually read. An unreachable
+  // check, or a channel with nothing published on it yet, is not the same thing
+  // as being current and must not be reported as if it were.
+  const reachable = info.RemoteReachable === true;
+  const channel = info.Channel || 'stable';
+
+  // How far the channel's branch has moved since this version, which a tag on
+  // its own cannot say.
+  const since = Number.isFinite(info.CommitsSince) ? info.CommitsSince : null;
+  const sinceText = (since && since > 0)
+    ? `, ${since} commit${since === 1 ? '' : 's'} on ${info.Branch || 'main'} since`
+    : '';
+
+  let summary;
+  if (versionState.updateAvailable) {
+    summary = `v${info.Current} - v${info.Latest} available`;
+  } else if (!reachable) {
+    summary = `v${info.Current} - no ${channel} release to compare against`;
+  } else {
+    summary = `v${info.Current} - up to date`;
+  }
+
   // The glyph carries the installed version on hover, so no text is needed
   // beside it in the corner.
   if (glyph) {
-    glyph.title = versionState.updateAvailable
-      ? `FedUpDate v${info.Current} - update to ${info.Latest} available`
-      : `FedUpDate v${info.Current} - up to date`;
+    glyph.title = `FedUpDate ${summary}${sinceText} (${channel} channel)`;
     glyph.classList.toggle('has-update', versionState.updateAvailable);
   }
   dot?.classList.toggle('hidden', !versionState.updateAvailable);
   updateBtn?.classList.toggle('hidden', !versionState.updateAvailable);
 
-  if (sub) {
-    sub.textContent = versionState.updateAvailable
-      ? `v${info.Current} - v${info.Latest} available`
-      : `v${info.Current} - up to date`;
-  }
+  if (sub) sub.textContent = `${summary}${sinceText}`;
 
   if (updateBtn && !updateBtn.dataset.bound) {
     updateBtn.dataset.bound = '1';

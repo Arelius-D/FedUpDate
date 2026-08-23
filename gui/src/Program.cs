@@ -359,6 +359,7 @@ namespace FedUpDate.UI
                         Dispatcher.Invoke(new Action(delegate
                         {
                             _splashMinimumElapsed = true;
+                            LogHost("Splash minimum elapsed.");
                             if (_appReported) DismissNativeSplash();
                         }));
                     }
@@ -413,6 +414,24 @@ namespace FedUpDate.UI
             {
                 _webView.Source = new Uri("http://localhost:58100/");
             }
+        }
+
+        // The host writes into the same rolling log as the engine, so the order
+        // of window startup can be read next to the audit it is waiting on.
+        // Without this the only way to tell a splash that is waiting from one
+        // that is stuck is to sit and watch it.
+        private static void LogHost(string message)
+        {
+            try
+            {
+                string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\.."));
+                string dir = Path.Combine(root, "data", "logs");
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] [INFO] [Host] {1}{2}",
+                    DateTime.Now, message, Environment.NewLine);
+                File.AppendAllText(Path.Combine(dir, "fedupdate.log"), line);
+            }
+            catch { }
         }
 
         private Grid CreateNativeSplashView()
@@ -493,6 +512,9 @@ namespace FedUpDate.UI
         {
             if (_splashGrid != null && _splashGrid.Visibility == Visibility.Visible)
             {
+                LogHost(_appReported
+                    ? "Splash released; showing the interface."
+                    : "Splash released on the ceiling without the interface reporting in.");
                 if (_webView != null) _webView.Visibility = Visibility.Visible;
                 DoubleAnimation fade = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromMilliseconds(260)));
                 fade.Completed += (s, e) =>
@@ -541,6 +563,7 @@ namespace FedUpDate.UI
                     if (cleaned.Equals("app_ready", StringComparison.OrdinalIgnoreCase))
                     {
                         _appReported = true;
+                        LogHost("Interface reported its first audit finished.");
                         if (_splashMinimumElapsed) DismissNativeSplash();
                         return;
                     }

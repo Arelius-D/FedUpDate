@@ -4,10 +4,11 @@
 # ==============================================================================
 
 . "$PSScriptRoot\Logger.ps1"
+# The channel an installation follows is configuration, so this reads it.
+. "$PSScriptRoot\Config.ps1"
 
 $script:FedRepoSlug = "Arelius-D/FedUpDate"
 $script:FedLatestReleaseUrl = "https://api.github.com/repos/$script:FedRepoSlug/releases/latest"
-$script:FedInstallScriptUrl = "https://raw.githubusercontent.com/$script:FedRepoSlug/main/install.ps1"
 
 function Get-FedVersion {
     <#
@@ -92,22 +93,82 @@ function Compare-FedVersion {
     return 0
 }
 
+function Get-FedUpdateChannel {
+    <#
+    .SYNOPSIS
+        The channel this installation follows: "stable" or "beta".
+    .DESCRIPTION
+        Anything unrecognised, missing, or written by an older configuration
+        resolves to stable, because offering someone a prerelease they did not
+        ask for is the worse of the two mistakes.
+    #>
+    [CmdletBinding()]
+    param([PSCustomObject]$Config)
+
+    try {
+        $cfg = if ($Config) { $Config } else { Get-FedConfig }
+        if ($null -ne $cfg -and $null -ne $cfg.PSObject.Properties['updateChannel']) {
+            if ([string]$cfg.updateChannel -eq "beta") { return "beta" }
+        }
+    } catch { }
+
+    return "stable"
+}
+
+function Get-FedChannelBranch {
+    <#
+    .SYNOPSIS
+        The branch a channel installs from.
+    .DESCRIPTION
+        An update is installed from a branch, not from the tag it was detected
+        by. If the two disagree the application reports an update, installs
+        something that is not it, and reports the same update again, which is a
+        loop no amount of updating clears.
+    #>
+    [CmdletBinding()]
+    param([string]$Channel)
+
+    if ($Channel -eq "beta") { return "dev" }
+    return "main"
+}
+
+function Get-FedInstallScriptUrl {
+    [CmdletBinding()]
+    param([string]$Branch = "main")
+
+    return "https://raw.githubusercontent.com/$script:FedRepoSlug/$Branch/install.ps1"
+}
+
 function Get-FedLatestRelease {
     <#
     .SYNOPSIS
-        Queries the published release from the GitHub API.
+        Queries the published release for a channel.
     .DESCRIPTION
-        Prereleases are not returned by the latest-release endpoint, so while the
-        project is in beta this falls back to the most recent tag published.
+        Stable reads the latest-release endpoint, which excludes prereleases by
+        definition. Beta reads the list and takes the most recent entry of any
+        kind.
+
+        The latest-release endpoint answers 404 when a repository has published
+        nothing but prereleases. That is an answer, not a failure: it means no
+        stable release exists yet, and it is reported as such rather than as a
+        network problem the caller should retry.
     #>
     [CmdletBinding()]
-    param([switch]$IncludePreRelease)
+    param(
+        [ValidateSet("stable", "beta")]
+        [string]$Channel = "stable",
+
+        # Retained for callers that ask for prereleases directly.
+        [switch]$IncludePreRelease
+    )
+
+    if ($IncludePreRelease) { $Channel = "beta" }
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $headers = @{ "User-Agent" = "FedUpDate" }
 
     try {
-        if ($IncludePreRelease) {
+        if ($Channel -eq "beta") {
             $all = Invoke-RestMethod -Uri "https://api.github.com/repos/$script:FedRepoSlug/releases?per_page=10" -Headers $headers -UseBasicParsing
             $release = @($all)[0]
         } else {
@@ -124,6 +185,14 @@ function Get-FedLatestRelease {
             PreRelease  = [bool]$release.prerelease
         }
     } catch {
+        $statusCode = 0
+        try { $statusCode = [int]$_.Exception.Response.StatusCode } catch { }
+
+        if ($Channel -eq "stable" -and $statusCode -eq 404) {
+            Write-FedLog "No stable release has been published yet." -Level "INFO" -Component "Version"
+            return $null
+        }
+
         Write-FedLog "Could not query the latest release: $_" -Level "WARN" -Component "Version"
         return $null
     }
@@ -142,19 +211,21 @@ function Get-FedVersionStatus {
     param([switch]$SkipRemote)
 
     $current = Get-FedVersion
+    $channel = Get-FedUpdateChannel
     $status = [PSCustomObject]@{
         Current         = $current
         Latest          = $null
         UpdateAvailable = $false
         ReleaseUrl      = $null
+        Channel         = $channel
+        Branch          = (Get-FedChannelBranch -Channel $channel)
         Checked         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
         RemoteReachable = $false
     }
 
     if ($SkipRemote) { return $status }
 
-    # While the project ships prereleases, include them in the comparison.
-    $release = Get-FedLatestRelease -IncludePreRelease
+    $release = Get-FedLatestRelease -Channel $channel
     if (-not $release) { return $status }
 
     $status.RemoteReachable = $true
@@ -197,7 +268,13 @@ function Get-FedReleaseNotes {
         return @()
     }
 
+    # A stable installation is never offered a prerelease, so it must not be
+    # shown the notes for one either. Otherwise the panel lists versions that
+    # will never arrive.
+    $channel = Get-FedUpdateChannel
+
     $notes = foreach ($release in @($releases)) {
+        if ($channel -ne "beta" -and [bool]$release.prerelease) { continue }
         if ((Compare-FedVersion -Left $current -Right $release.tag_name) -ge 0) { continue }
 
         $body = if ($release.body) { $release.body } else { "" }
@@ -235,31 +312,87 @@ function Invoke-FedSelfUpdate {
 
     $status = Get-FedVersionStatus
 
+    # The branch the update is taken from has to be the one the offered release
+    # was cut from. Detecting an update by tag and then installing a different
+    # branch reports the update again the moment it finishes.
+    $branch = if ($status.Branch) { $status.Branch } else { Get-FedChannelBranch -Channel (Get-FedUpdateChannel) }
+    $installerUrl = Get-FedInstallScriptUrl -Branch $branch
+
     if (-not $status.RemoteReachable) {
         Write-FedLog "Update check failed; not attempting a self-update." -Level "ERROR" -Component "Version"
         return $false
     }
 
     if (-not $status.UpdateAvailable -and -not $Force) {
-        Write-FedLog "Already on the latest version ($($status.Current))." -Level "SUCCESS" -Component "Version"
+        Write-FedLog "Already on the latest version ($($status.Current)) on the $($status.Channel) channel." -Level "SUCCESS" -Component "Version"
         return $true
     }
 
     if ($WhatIf) {
-        Write-FedLog "[WHATIF] Would update from $($status.Current) to $($status.Latest) via $script:FedInstallScriptUrl" -Level "WHATIF" -Component "Version"
+        Write-FedLog "[WHATIF] Would update from $($status.Current) to $($status.Latest) via $installerUrl" -Level "WHATIF" -Component "Version"
         return $true
     }
 
-    Write-FedLog "Updating from $($status.Current) to $($status.Latest)..." -Level "INFO" -Component "Version"
+    Write-FedLog "Updating from $($status.Current) to $($status.Latest) from the $branch branch..." -Level "INFO" -Component "Version"
 
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $installer = Invoke-RestMethod -Uri $script:FedInstallScriptUrl -UseBasicParsing
-        & ([scriptblock]::Create($installer))
+        $installer = Invoke-RestMethod -Uri $installerUrl -UseBasicParsing
+        & ([scriptblock]::Create($installer)) -Branch $branch
         Write-FedLog "Self-update completed. Restart FedUpDate to run the new version." -Level "SUCCESS" -Component "Version"
         return $true
     } catch {
         Write-FedLog "Self-update failed: $_" -Level "ERROR" -Component "Version"
         return $false
     }
+}
+
+function Get-FedBranchPosition {
+    <#
+    .SYNOPSIS
+        How many commits the channel branch has gained since a release.
+    .DESCRIPTION
+        Answers "what has happened since the version I am running", which a tag
+        alone cannot say. GitHub's compare endpoint reports the distance between
+        the installed version's tag and the head of the branch that channel
+        installs from.
+
+        This is a third call against an API that allows sixty an hour for the
+        whole machine unauthenticated, so callers are expected to hold the
+        result rather than ask again each time a panel opens.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$FromTag,
+        [string]$Branch
+    )
+
+    $from = if ($FromTag) { $FromTag } else { Get-FedVersion }
+    if ([string]::IsNullOrWhiteSpace($from)) { return $null }
+
+    $target = if ($Branch) { $Branch } else { Get-FedChannelBranch -Channel (Get-FedUpdateChannel) }
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $headers = @{ "User-Agent" = "FedUpDate" }
+
+    # Releases have been tagged both with and without a leading v, so a miss on
+    # one spelling is retried with the other before giving up.
+    foreach ($tag in @($from, "v$($from.TrimStart('v','V'))" ) | Select-Object -Unique) {
+        try {
+            $uri = "https://api.github.com/repos/$script:FedRepoSlug/compare/$tag...$target"
+            $cmp = Invoke-RestMethod -Uri $uri -Headers $headers -UseBasicParsing
+
+            return [PSCustomObject]@{
+                FromTag      = $tag
+                Branch       = $target
+                Status       = [string]$cmp.status
+                CommitsSince = [int]$cmp.ahead_by
+                TotalCommits = [int]$cmp.total_commits
+                CompareUrl   = [string]$cmp.html_url
+            }
+        } catch { }
+    }
+
+    Write-FedLog "Could not compare $from against $target." -Level "DEBUG" -Component "Version"
+    return $null
 }

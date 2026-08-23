@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-08-23
+
+First stable release. The command line verbs and their switches, the keys in
+`config.json`, the installer's switches, the state ledger format and the update
+channel contract are now settled, and none of them change again without a major
+version. Everything below this entry is the development history that got here.
+
+### Added
+
+- **Update Channels (`core/Config.ps1`, `core/Version.ps1`, `gui/index.html`, `gui/app.js`)**:
+  - An installation follows either the stable channel or the beta channel, set from Settings and stored as `updateChannel`. Stable is offered published releases and installs from the main branch. Beta is offered prereleases as well and installs from the development branch.
+  - The channel decides both halves, and that is the point of it. An update detected from one place and installed from another reports itself as available again the moment it finishes, which is a loop no amount of updating clears. A channel that has published nothing yet is reported as exactly that rather than as a network failure, and anything unrecognised in the configuration resolves to stable, because offering somebody a prerelease they did not ask for is the worse of the two mistakes.
+  - Release notes follow the channel too, so a stable installation is not shown notes for versions it will never be offered.
+
+- **Distance From the Installed Version (`core/Version.ps1`, `gui/Server.ps1`, `gui/app.js`)**:
+  - The version panel reports how many commits the channel's branch has gained since the installed release, which a version number on its own cannot say. It is read once and held for the life of the interface, because the unauthenticated interface to the release data allows sixty requests an hour for the whole machine.
+
+- **The Window Records Its Own Startup (`gui/src/Program.cs`)**:
+  - Window startup is written into the same rolling log as the engine, so a splash waiting on an audit can be told apart from one that is stuck without sitting and watching it.
+
+### Fixed
+
+- **Saving Preferences Replaced the Entire Configuration (`core/Config.ps1`, `gui/Server.ps1`)**:
+  - The interface posts the settings it knows about, and the endpoint wrote that object to disk whole. Everything it did not mention, which was the reboot policy, the watchdog rules, the scheduler and the exclusions, was deleted by the act of saving a theme. Changes are now merged onto what is already stored, so a caller that knows about two settings cannot remove the rest.
+
+- **The Splash Left Before the First Audit, Then Stayed Until Its Timeout (`gui/app.js`, `gui/src/Program.cs`)**:
+  - The interface announced that it was ready from inside an animation frame. A view that is not being rendered is not given animation frames, so once the interface was correctly hidden behind the splash the announcement was never sent, and the splash sat until its own ceiling instead of until the work finished.
+  - The announcement is sent directly now. Waiting for a paint was pointless in any case, because what the host waits to hear is that the first audit has finished, not that a frame has been drawn.
+
+- **An Unreachable Update Check Reported Being Up To Date (`gui/app.js`)**:
+  - Not having read a release is not the same as having read one and matching it. The panel now says which of the two happened.
+
+---
+
 ## [0.5.9-beta] - 2026-08-23
 
 ### Fixed

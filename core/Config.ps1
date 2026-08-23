@@ -30,6 +30,11 @@ function Get-FedDefaultConfig {
         rebootPolicy = "Smart"
         rebootScheduleTime = "03:00"
         allowRebootOnAdvisory = $false
+        # Which releases this installation is offered, and which branch an update
+        # is installed from. "stable" takes published releases and installs from
+        # main. "beta" takes prereleases as well and installs from dev, so that
+        # what is offered and what arrives are the same thing.
+        updateChannel = "stable"
         watchdog    = [PSCustomObject]@{
             enabled                    = $true
             enforceOnBoot              = $true
@@ -81,6 +86,47 @@ function Get-FedConfig {
     }
 }
 
+function Update-FedConfig {
+    <#
+        .SYNOPSIS
+            Applies a partial change to the stored configuration.
+
+        .DESCRIPTION
+            Writing a caller's object straight to disk replaces the whole file,
+            so a caller that knows about two settings silently deletes every
+            other one. This merges instead: keys present in the patch are
+            written, nested objects are merged a level at a time, and anything
+            the caller did not mention is left exactly as it was.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Patch
+    )
+
+    $config = Get-FedConfig
+
+    foreach ($property in $Patch.PSObject.Properties) {
+        $name = $property.Name
+        $value = $property.Value
+
+        $existing = $config.PSObject.Properties[$name]
+        if ($null -ne $existing -and
+            $existing.Value -is [PSCustomObject] -and
+            $value -is [PSCustomObject]) {
+
+            foreach ($child in $value.PSObject.Properties) {
+                $existing.Value | Add-Member -NotePropertyName $child.Name -NotePropertyValue $child.Value -Force
+            }
+            continue
+        }
+
+        $config | Add-Member -NotePropertyName $name -NotePropertyValue $value -Force
+    }
+
+    return Set-FedConfig -Config $config
+}
+
 function Set-FedConfig {
     [CmdletBinding()]
     param(
@@ -111,4 +157,4 @@ function Reset-FedConfig {
     return Set-FedConfig -Config $defaultConfig
 }
 
-Export-ModuleMember -Function Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Reset-FedConfig -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Update-FedConfig, Reset-FedConfig -ErrorAction SilentlyContinue

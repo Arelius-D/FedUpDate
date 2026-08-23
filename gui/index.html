@@ -295,6 +295,23 @@
                 </label>
               </div>
             </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .75.75v8.19l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V2.75A.75.75 0 0 1 10 2ZM3.5 15.25a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H4.25a.75.75 0 0 1-.75-.75Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">Update Channel</div>
+                <div class="card-desc">Stable takes published releases and installs from the main branch. Beta takes prereleases and installs from the development branch, so what is offered and what arrives are the same build.</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-info" id="updateChannelBadge">Stable</span>
+                <select class="fluent-select" id="updateChannelSelect">
+                  <option value="stable" selected>Stable (published releases)</option>
+                  <option value="beta">Beta (prereleases, may break)</option>
+                </select>
+              </div>
+            </div>
           </div>
         </section>
 

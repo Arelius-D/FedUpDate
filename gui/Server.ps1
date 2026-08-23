@@ -522,7 +522,24 @@ try {
                     # The remote check is cached for the life of the server process:
                     # opening Settings repeatedly must not hammer the GitHub API.
                     if ($method -eq "POST" -or $null -eq $global:FedVersionStatus) {
-                        $global:FedVersionStatus = Get-FedVersionStatus
+                        $status = Get-FedVersionStatus
+
+                        # How far the channel's branch has moved since the
+                        # installed version. A second call against an API that
+                        # allows sixty an hour for the whole machine, so it is
+                        # taken once and held alongside the status rather than
+                        # asked for every time the panel opens.
+                        $position = Get-FedBranchPosition -FromTag $status.Current -Branch $status.Branch
+                        $commitsSince = $null
+                        $compareUrl = $null
+                        if ($position) {
+                            $commitsSince = [int]$position.CommitsSince
+                            $compareUrl = [string]$position.CompareUrl
+                        }
+                        $status | Add-Member -NotePropertyName CommitsSince -NotePropertyValue $commitsSince -Force
+                        $status | Add-Member -NotePropertyName CompareUrl -NotePropertyValue $compareUrl -Force
+
+                        $global:FedVersionStatus = $status
                     }
                     Send-FedResponse -Context $context -Content $global:FedVersionStatus -ContentType "application/json"
                 }
@@ -544,7 +561,9 @@ try {
                 "/api/config" {
                     if ($method -eq "POST") {
                         $body = Read-RequestBody -Context $context
-                        $res = Set-FedConfig -Config $body
+                        # Merged, not written whole: the interface posts the settings it
+                        # knows about, and everything else has to survive that.
+                        $res = Update-FedConfig -Patch $body
                         Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
                     } else {
                         $cfg = Get-FedConfig
