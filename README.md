@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/fedupdate-icon.png" width="128" height="128" alt="FedUpDate Logo" />
+  <img src="assets/readme/logo-512.png" width="128" height="128" alt="FedUpDate Logo" />
   <h1>FedUpDate</h1>
   <p><strong>Unified Windows 11 Update &amp; Anti-Tamper Orchestrator</strong></p>
   <p><em>"Because Microsoft needs three separate corporate divisions and zero communication to update one operating system."</em></p>
@@ -113,6 +113,12 @@ FedUpDate/
 ├── fedupdate.ps1              # Master CLI / TUI / GUI entry point
 ├── fedupdate.cmd              # Windows CMD/terminal wrapper
 ├── fedupdate-gui.vbs          # Zero-terminal silent GUI launcher
+├── assets/                    # Brand marks, every size the project ships
+│   ├── master.png             # 1024px source the rest is rendered from
+│   ├── app/                   # Splash and title bar marks used by the GUI
+│   ├── desktop/               # app.ico for Windows, iconset and hicolor sets
+│   ├── readme/                # Documentation marks
+│   └── web/                   # Favicon, touch icon and PWA marks
 ├── core/                      # PowerShell Engine Core
 │   ├── Engine.psm1            # Master module orchestrator
 │   ├── OSUpdateEngine.ps1     # Native Windows Update Agent & Defender updater

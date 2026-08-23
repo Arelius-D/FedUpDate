@@ -101,6 +101,16 @@ namespace FedUpDate.UI
         private Grid _splashGrid;
         private Process _serverProcess;
 
+        // The splash is held until the interface reports its first audit has
+        // finished, so the branding is on screen for the wait rather than for a
+        // moment before it. The minimum keeps it from flashing when that audit
+        // returns immediately; the ceiling releases the window if the report
+        // never arrives at all.
+        private const int SplashMinimumMs = 1600;
+        private const int SplashCeilingMs = 90000;
+        private bool _splashMinimumElapsed;
+        private bool _appReported;
+
         public MainWindow()
         {
             Title = "FedUpDate";
@@ -326,9 +336,25 @@ namespace FedUpDate.UI
                     };
                 }
 
-                // Guaranteed 2500ms branding splash presentation
+                // The splash is held for a minimum so the branding is actually
+                // seen, and released once the interface reports that its first
+                // audit has finished. A ceiling covers the case where that
+                // report never arrives, so a stalled backend cannot leave the
+                // window showing a splash indefinitely.
                 #pragma warning disable 4014
-                Task.Delay(2500).ContinueWith(t =>
+                Task.Delay(SplashMinimumMs).ContinueWith(t =>
+                {
+                    try
+                    {
+                        Dispatcher.Invoke(new Action(delegate
+                        {
+                            _splashMinimumElapsed = true;
+                            if (_appReported) DismissNativeSplash();
+                        }));
+                    }
+                    catch { }
+                });
+                Task.Delay(SplashCeilingMs).ContinueWith(t =>
                 {
                     try
                     {
@@ -390,13 +416,13 @@ namespace FedUpDate.UI
 
             // Load high-resolution logo
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string iconPath = Path.Combine(baseDir, @"..\..\assets\fedupdate-icon.png");
+            string iconPath = Path.Combine(baseDir, @"..\..\assets\app\splash-512.png");
             if (!File.Exists(iconPath))
             {
-                iconPath = Path.Combine(baseDir, @"assets\fedupdate-icon.png");
+                iconPath = Path.Combine(baseDir, @"assets\app\splash-512.png");
                 if (!File.Exists(iconPath))
                 {
-                    iconPath = Path.Combine(Directory.GetCurrentDirectory(), @"assets\fedupdate-icon.png");
+                    iconPath = Path.Combine(Directory.GetCurrentDirectory(), @"assets\app\splash-512.png");
                 }
             }
 
@@ -498,6 +524,17 @@ namespace FedUpDate.UI
                 Dispatcher.Invoke(new Action(delegate
                 {
                     string cleaned = msg.Trim('\"', ' ', '{', '}');
+
+                    // Checked before the window commands, because "app_ready"
+                    // contains no substring any of them match and this is the
+                    // message that releases the splash.
+                    if (cleaned.Equals("app_ready", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _appReported = true;
+                        if (_splashMinimumElapsed) DismissNativeSplash();
+                        return;
+                    }
+
                     if (cleaned.IndexOf("min", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         WindowState = WindowState.Minimized;

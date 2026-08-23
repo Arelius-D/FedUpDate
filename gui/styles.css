@@ -836,6 +836,18 @@ body {
   display: inline-block;
 }
 
+/* Collapsed rail. The row fills the rail's content box, so the inline padding
+   that positions a glyph next to its label becomes a fixed offset from the left
+   edge once the label is gone, leaving the glyph off the rail's centre line.
+   Centring the row and dropping that padding puts every glyph on the same axis. */
+.nav-rail:not(.expanded) .nav-toggle-btn,
+.nav-rail:not(.expanded) .nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+}
+
 /* --------------------------------------------------------------------------
    Content Viewport & Pages
    -------------------------------------------------------------------------- */

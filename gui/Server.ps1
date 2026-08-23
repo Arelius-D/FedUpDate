@@ -364,7 +364,9 @@ try {
                 continue
             }
             if ($urlPath.StartsWith("/assets/") -or $urlPath -eq "/favicon.ico") {
-                $assetRel = if ($urlPath -eq "/favicon.ico") { "assets\fedupdate.ico" } else { $urlPath.Substring(1).Replace("/", "\") }
+                # The tab icon is the small multi-size file, not the 256px one
+                # the executable and the shortcuts embed.
+                $assetRel = if ($urlPath -eq "/favicon.ico") { "assets\web\favicon.ico" } else { $urlPath.Substring(1).Replace("/", "\") }
                 $assetFile = Join-Path $scriptRoot $assetRel
                 if (Test-Path $assetFile) {
                     $mime = if ($assetFile.EndsWith(".png")) { "image/png" } elseif ($assetFile.EndsWith(".ico")) { "image/x-icon" } else { "application/octet-stream" }

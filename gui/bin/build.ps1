@@ -131,7 +131,7 @@ $refAssemblies = @(
     (Join-Path $binDir "Microsoft.Web.WebView2.Core.dll")
 )
 
-$icoFile = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "assets\fedupdate.ico"
+$icoFile = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "assets\desktop\app.ico"
 
 $argsList = @(
     "/target:winexe",

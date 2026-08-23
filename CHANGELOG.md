@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.8-beta] - 2026-08-23
+
+### Fixed
+
+- **Branding Splash Left the Screen Before the First Audit (`gui/src/Program.cs`, `gui/app.js`)**:
+  - The interface posts a message when its startup work is finished, and the host never handled that message. The splash was released instead by a timer started before the page had even been navigated to, so it went as soon as that elapsed and the window appeared while the first audit was still running.
+  - A second signal fired from the window's load event, which arrives once the page's resources are in and long before startup has finished, so it released the splash earlier still.
+  - The audit was started without being waited on, so startup reported itself complete before the audit had begun.
+  - The splash is now held for as long as the first audit runs. A minimum keeps it from flashing past when that audit returns immediately, and a ceiling releases the window if the report never arrives at all.
+
+- **Navigation Glyphs Sat Off Centre While Collapsed (`gui/styles.css`)**:
+  - The rail carried rules for its expanded state only. Collapsed, each row kept the inline padding that places a glyph beside its label, and with no label present that padding is a fixed offset from the left edge rather than a centre, so every glyph sat to one side of the rail's centre line. Collapsed rows are now centred and that padding is dropped.
+
+### Changed
+
+- **Every Brand Mark Ships, and Each Surface Uses the One Built for It (`README.md`, `gui/index.html`, `gui/Server.ps1`, `gui/src/Program.cs`, `gui/bin/build.ps1`, `install.ps1`, `assets/`)**:
+  - The repository now carries the complete set of marks under `assets/`, sorted by where they belong: `app/` for the splash and title bar, `desktop/` for the Windows icon and the iconset and hicolor sets, `readme/` for documentation, `web/` for the favicon, touch icon and progressive web app marks, and `master.png` as the source the rest is rendered from.
+  - One 1024 pixel image stood in for the readme mark, the splash, the browser tab icon, the touch icon and the 22 pixel mark in the title bar. Each of those now has an asset built for it. The tab icon carries only the three sizes a tab draws at, the title bar mark is picked by pixel density so it is sharp on a scaled display without decoding a megapixel to fill 22 of them, and the window, taskbar and shortcut icon is one file holding every size Windows asks for.
+
+- **The Navigation Toggle Shows Its State Instead of Naming It (`gui/index.html`, `gui/app.js`)**:
+  - The toggle spelled out Collapse beside its glyph whenever the rail was open. The glyph already says what the control does, so the word is gone and the state is carried where it is useful, on the control itself and in its tooltip.
+
+---
+
 ## [0.5.7-beta] - 2026-08-23
 
 ### Fixed

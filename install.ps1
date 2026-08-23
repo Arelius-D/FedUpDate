@@ -675,7 +675,7 @@ try { $wshShell = New-Object -ComObject WScript.Shell } catch {
 
 if ($wshShell) {
     $guiExe = Join-Path $scriptDir "gui\bin\FedUpDate.UI.exe"
-    $appIcon = Join-Path $scriptDir "assets\fedupdate.ico"
+    $appIcon = Join-Path $scriptDir "assets\desktop\app.ico"
 
     if (Test-Path $guiExe) {
         $linkTarget = $guiExe

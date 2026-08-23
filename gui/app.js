@@ -56,9 +56,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-window.addEventListener('load', () => {
-  signalAppReady();
-});
+// There is deliberately no 'load' listener here. 'load' fires once the page's
+// resources are in, which is long before the initial audit above has finished,
+// and signalling there dismissed the branding splash within a frame of the
+// window appearing. The host has its own ceiling for the case where this
+// message never arrives.
 
 // Setup Navigation
 function setupNavigation() {
@@ -97,14 +99,14 @@ function setupNavigation() {
   // Toggle Navigation Sidebar Expansion (stays on current tab without navigation)
   const navRail = document.getElementById('navRail');
   const navToggleBtn = document.getElementById('navToggleBtn');
-  const navToggleLabel = document.getElementById('navToggleLabel');
   if (navToggleBtn && navRail) {
     navToggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const isExpanded = navRail.classList.toggle('expanded');
-      if (navToggleLabel) {
-        navToggleLabel.textContent = isExpanded ? 'Collapse' : 'Expand';
-      }
+      // The glyph carries the meaning, so the state is exposed to assistive
+      // technology rather than spelled out next to it.
+      navToggleBtn.setAttribute('aria-expanded', String(isExpanded));
+      navToggleBtn.title = isExpanded ? 'Collapse navigation' : 'Expand navigation';
     });
   }
 }
@@ -432,49 +434,63 @@ async function loadInitialData() {
     }
   } catch (err) {}
 
-  triggerScan();
+  // Awaited so the caller knows when the first audit is genuinely done. The
+  // ledger is not part of that and loads alongside.
   loadLedger();
+  await triggerScan();
 }
 
 // Trigger Deep System Scan
-async function triggerScan() {
+// Resolves when the audit has actually finished rather than when the request to
+// start it returns, so a caller can wait for the result. The startup sequence
+// waits on this to keep the branding splash up for as long as the first audit
+// runs; the button does not care either way.
+function triggerScan() {
   setDockProgress("Scanning", "Auditing OS updates, WinGet packages, Store sync, and reboot state...", 25, true);
-  try {
-    await fetch(`${API_BASE}/api/scan`, { method: 'POST' });
-    
-    let pollCount = 0;
-    const scanTimer = setInterval(async () => {
-      pollCount++;
-      try {
-        const res = await fetch(`${API_BASE}/api/scan`);
-        const result = await res.json();
-        
-        if (result.scanData) {
-          state.scanData = result.scanData;
-          if (Array.isArray(result.scanData.WingetUpdates)) {
-            state.packages = result.scanData.WingetUpdates;
-          } else if (result.scanData.WingetUpdates) {
-            state.packages = [result.scanData.WingetUpdates];
-          } else {
-            state.packages = [];
+
+  return new Promise(async (resolve) => {
+    try {
+      await fetch(`${API_BASE}/api/scan`, { method: 'POST' });
+
+      let pollCount = 0;
+      const scanTimer = setInterval(async () => {
+        pollCount++;
+        try {
+          const res = await fetch(`${API_BASE}/api/scan`);
+          const result = await res.json();
+
+          if (result.scanData) {
+            state.scanData = result.scanData;
+            if (Array.isArray(result.scanData.WingetUpdates)) {
+              state.packages = result.scanData.WingetUpdates;
+            } else if (result.scanData.WingetUpdates) {
+              state.packages = [result.scanData.WingetUpdates];
+            } else {
+              state.packages = [];
+            }
+            updateDashboardUI();
+            renderPackagesTable();
           }
-          updateDashboardUI();
-          renderPackagesTable();
+
+          if (!result.isScanning || pollCount > 60) {
+            clearInterval(scanTimer);
+            setDockProgress("Ready", "System scan complete.", 100, false);
+            document.getElementById('taskProgressDock')?.classList.add('dock-idle');
+            resolve();
+          }
+        } catch (err) {
+          if (pollCount > 60) {
+            clearInterval(scanTimer);
+            resolve();
+          }
         }
-        
-        if (!result.isScanning || pollCount > 60) {
-          clearInterval(scanTimer);
-          setDockProgress("Ready", "System scan complete.", 100, false);
-          document.getElementById('taskProgressDock')?.classList.add('dock-idle');
-        }
-      } catch (err) {
-        if (pollCount > 60) clearInterval(scanTimer);
-      }
-    }, 1200);
-  } catch (err) {
-    console.error("Scan error:", err);
-    setDockProgress("Error", `Scan failed: ${err.message}`, 0, false);
-  }
+      }, 1200);
+    } catch (err) {
+      console.error("Scan error:", err);
+      setDockProgress("Error", `Scan failed: ${err.message}`, 0, false);
+      resolve();
+    }
+  });
 }
 
 // Update Dashboard View Elements
