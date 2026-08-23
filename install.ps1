@@ -76,13 +76,18 @@ function Get-FedProfilePath {
     <#
         Every PowerShell profile this installation could have written to.
 
-        $PROFILE resolves per host: PowerShell 7 uses Documents\PowerShell and
-        Windows PowerShell uses Documents\WindowsPowerShell. An install done
-        from one host and an uninstall run from the other would clean a
-        directory that never held the alias, and leave behind a function
-        pointing at a folder that no longer exists. Install writes to the host
-        it was run from, because PATH already covers the other one, but
-        uninstall has to consider all of them.
+        $PROFILE resolves two ways at once. The directory differs by edition:
+        PowerShell 7 uses Documents\PowerShell and Windows PowerShell uses
+        Documents\WindowsPowerShell. The current-host file name differs by host:
+        Microsoft.PowerShell_profile.ps1 in a console, Microsoft.VSCode_profile.ps1
+        inside the editor, Microsoft.PowerShellISE_profile.ps1 in the ISE, and
+        whatever a host not yet written names itself.
+
+        Installing from one host and removing from another would otherwise leave
+        a fedupdate function behind pointing at a directory that no longer
+        exists, so rather than guessing host names this lists what is actually
+        present. Install writes only to the host it was run from, because PATH
+        already covers the others.
     #>
     $roots = [System.Collections.Generic.List[string]]::new()
 
@@ -92,21 +97,30 @@ function Get-FedProfilePath {
         $roots.Add((Join-Path $docs "WindowsPowerShell"))
     }
 
+    $paths = [System.Collections.Generic.List[string]]::new()
+
     # Whatever the running host reports, in case Documents is redirected
-    # somewhere neither of the above finds.
+    # somewhere neither directory above finds.
     foreach ($known in @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
-        if ($known) { $roots.Add((Split-Path -Parent $known)) }
+        if ($known) {
+            $paths.Add($known)
+            $roots.Add((Split-Path -Parent $known))
+        }
     }
 
-    $paths = [System.Collections.Generic.List[string]]::new()
     foreach ($root in ($roots | Where-Object { $_ } | Select-Object -Unique)) {
         $paths.Add((Join-Path $root "profile.ps1"))
         $paths.Add((Join-Path $root "Microsoft.PowerShell_profile.ps1"))
+
+        if (Test-Path $root) {
+            foreach ($f in @(Get-ChildItem -Path $root -Filter "Microsoft.*_profile.ps1" -File -ErrorAction SilentlyContinue)) {
+                $paths.Add($f.FullName)
+            }
+        }
     }
 
     return @($paths | Select-Object -Unique)
 }
-
 function Remove-FedProfileHook {
     <#
         Strips the FedUpDate alias from a PowerShell profile.
