@@ -522,10 +522,28 @@ if ($Uninstall) {
         }
     }
 
-    # Step 6: Remove Shortcuts
+    # Step 6: Remove shortcuts, including the ones a user pinned themselves.
+    #
+    # A pinned taskbar item is a shortcut in the Quick Launch tree, and leaving
+    # it behind leaves an icon that opens nothing. Explorer keeps its own cache
+    # of the taskbar, so the icon can survive on screen until Explorer next
+    # reads it, but the shortcut it would run is gone.
+    #
+    # A Start menu pin on Windows 11 is held in a database with no supported way
+    # to edit it, so that one is left alone rather than poked at.
     $startMenuDir = Get-FedShellFolder -Folder Programs -Fallback "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
     $desktopDir = Get-FedShellFolder -Folder DesktopDirectory -Fallback "$env:USERPROFILE\Desktop"
-    $shortcutsToRemove = @($startMenuDir, $desktopDir) |
+    $quickLaunch = Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch"
+
+    $shortcutDirs = @(
+        $startMenuDir
+        $desktopDir
+        $quickLaunch
+        (Join-Path $quickLaunch "User Pinned\TaskBar")
+        (Join-Path $quickLaunch "User Pinned\StartMenu")
+    )
+
+    $shortcutsToRemove = @($shortcutDirs) |
         Where-Object { $_ } |
         ForEach-Object { Join-Path $_ "FedUpDate.lnk" }
     foreach ($s in $shortcutsToRemove) {

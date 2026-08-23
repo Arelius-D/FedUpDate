@@ -726,6 +726,22 @@
           </div>
         </div>
 
+        <!-- Application dialog. Replaces the browser's own confirm and alert,
+             which the host draws as a system window titled with the local
+             address the interface is served from, and which cannot be styled,
+             themed or worded like the rest of the application. -->
+        <div class="modal-overlay hidden" id="appDialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+          <div class="modal-card">
+            <h2 class="modal-title" id="appDialogTitle">FedUpDate</h2>
+            <p class="modal-subtitle" id="appDialogBody"></p>
+            <p class="modal-note hidden" id="appDialogNote"></p>
+            <div class="modal-actions">
+              <button class="btn btn-secondary hidden" id="appDialogCancel">Cancel</button>
+              <button class="btn btn-primary" id="appDialogConfirm">OK</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Real-time Bottom Task Progress Dock -->
         <div class="task-progress-dock dock-idle" id="taskProgressDock">
           <div class="dock-content">

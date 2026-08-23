@@ -31,6 +31,72 @@ function signalAppReady() {
   }
 }
 
+// In-application dialogs
+//
+// The browser's confirm and alert are drawn by the host as a system window
+// titled with the local address the interface is served from. It cannot be
+// styled, it does not follow the theme, and it names an implementation detail
+// at the user. These resolve the same way without leaving the application:
+// fedConfirm resolves true or false, fedNotify resolves when acknowledged.
+function fedDialog({ title, body, note, confirmText, cancelText, danger }) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('appDialog');
+    const titleEl = document.getElementById('appDialogTitle');
+    const bodyEl = document.getElementById('appDialogBody');
+    const noteEl = document.getElementById('appDialogNote');
+    const okBtn = document.getElementById('appDialogConfirm');
+    const cancelBtn = document.getElementById('appDialogCancel');
+
+    // Without the markup there is nothing to ask through, so a question
+    // resolves as declined rather than silently acting.
+    if (!overlay || !okBtn) { resolve(!cancelText); return; }
+
+    if (titleEl) titleEl.textContent = title || 'FedUpDate';
+    if (bodyEl) bodyEl.textContent = body || '';
+    if (noteEl) {
+      noteEl.textContent = note || '';
+      noteEl.classList.toggle('hidden', !note);
+    }
+
+    okBtn.textContent = confirmText || 'OK';
+    okBtn.className = `btn ${danger ? 'btn-danger' : 'btn-primary'}`;
+    cancelBtn.textContent = cancelText || 'Cancel';
+    cancelBtn.classList.toggle('hidden', !cancelText);
+
+    const close = (result) => {
+      overlay.classList.add('hidden');
+      document.removeEventListener('keydown', onKey);
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      overlay.onclick = null;
+      resolve(result);
+    };
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(false);
+      else if (e.key === 'Enter') close(true);
+    };
+
+    okBtn.onclick = () => close(true);
+    cancelBtn.onclick = () => close(false);
+    // Clicking away is a decline, and only when the backdrop itself is hit
+    // rather than anything inside the card.
+    overlay.onclick = (e) => { if (e.target === overlay) close(false); };
+    document.addEventListener('keydown', onKey);
+
+    overlay.classList.remove('hidden');
+    okBtn.focus();
+  });
+}
+
+function fedConfirm(body, opts = {}) {
+  return fedDialog({ cancelText: 'Cancel', confirmText: 'Continue', ...opts, body });
+}
+
+function fedNotify(body, opts = {}) {
+  return fedDialog({ ...opts, body, cancelText: null });
+}
+
 // Initialize Application
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -426,7 +492,7 @@ function setupEventListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode })
       });
-      alert("FedUpDate has been cleanly uninstalled. The application will now exit.");
+      await fedNotify("FedUpDate has been removed. The application will now close.", { title: "Uninstalled", confirmText: "Close" });
       window.close();
     } catch {
       window.close();
@@ -675,7 +741,7 @@ function updateNotificationsUI() {
 }
 
 async function forceRestart() {
-  if (confirm("Are you sure you want to reboot the system now?")) {
+  if (await fedConfirm("This restarts the computer now. Anything unsaved in other applications will be lost.", { title: "Restart now?", confirmText: "Restart now", danger: true })) {
     setDockProgress("Rebooting", "Issuing system restart...", 90, true);
     try {
       await fetch(`${API_BASE}/api/reboot/force`, { method: 'POST' });
@@ -684,7 +750,7 @@ async function forceRestart() {
 }
 
 async function forceShutdown() {
-  if (confirm("Are you sure you want to finalize updates and shut down the computer now?")) {
+  if (await fedConfirm("This finishes the pending work and powers the computer off. Anything unsaved in other applications will be lost.", { title: "Shut down now?", confirmText: "Shut down", danger: true })) {
     setDockProgress("Shutting Down", "Finalizing updates and powering off system...", 95, true);
     try {
       await fetch(`${API_BASE}/api/reboot/shutdown`, { method: 'POST' });
@@ -879,7 +945,7 @@ async function updateSinglePackage(packageId) {
 async function updateSelectedPackages() {
   const selectedIds = Array.from(document.querySelectorAll('.pkg-checkbox:checked')).map(cb => cb.dataset.id);
   if (selectedIds.length === 0) {
-    alert("Please select at least one package to upgrade.");
+    await fedNotify("Select at least one package before upgrading.", { title: "Nothing selected" });
     return;
   }
 
@@ -999,7 +1065,7 @@ async function rollbackState(txId, isWhatIf = false) {
     ? `Simulate rollback for transaction '${txId}'?` 
     : `Are you sure you want to revert transaction '${txId}' and restore original settings?`;
 
-  if (!confirm(promptText)) return;
+  if (!(await fedConfirm(promptText, { title: isWhatIf ? "Simulate rollback" : "Revert this change?", confirmText: isWhatIf ? "Simulate" : "Revert", danger: !isWhatIf }))) return;
 
   setDockProgress("Rolling back", `Restoring snapshot ${txId}...`, 40, true);
   try {
@@ -1140,7 +1206,7 @@ function renderLogs(forceScroll = false) {
   }
 }
 
-function exportLogs() {
+async function exportLogs() {
   const filter = document.getElementById('logFilterSelect')?.value || 'ALL';
   const filtered = state.logs.filter(l => {
     const levelClearedAt = state.clearedLevels[l.Level] || state.clearedLevels['ALL'] || 0;
@@ -1152,7 +1218,7 @@ function exportLogs() {
   });
 
   if (filtered.length === 0) {
-    alert("No log entries match the current filter to export.");
+    await fedNotify("No log entries match the current filter, so there is nothing to export.", { title: "Nothing to export" });
     return;
   }
 

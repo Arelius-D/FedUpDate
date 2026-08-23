@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] - 2026-08-23
+
+### Changed
+
+- **Prompts Belong to the Application (`gui/index.html`, `gui/app.js`)**:
+  - Confirming a restart, a shutdown or a rollback, and being told that a filter matched nothing, used the browser's own dialogs. The host draws those as a plain system window titled with the local address the interface is served from, which follows neither the theme nor the wording of anything around it and puts an implementation detail in front of the user.
+  - Those six are now asked and answered inside the application, using the same card the uninstall dialog uses. They can be dismissed with the keyboard or by clicking away from the card, and dismissing means declining, so nothing acts on a question that was closed rather than answered.
+
+### Fixed
+
+- **A Pinned Taskbar Shortcut Outlived the Application (`install.ps1`)**:
+  - Uninstall removed the Start menu and desktop shortcuts and left any the user had pinned themselves, so a pinned taskbar icon stayed behind pointing at a directory that no longer existed. Pinned shortcuts are now removed with the rest. Explorer keeps its own view of the taskbar, so an icon can remain on screen until it next reads that, but nothing is left for it to run.
+  - A Windows 11 Start menu pin is held in a database with no supported way to edit it. That one is left alone deliberately rather than poked at, and it is written down here rather than left as a surprise.
+
+---
+
 ## [1.0.0] - 2026-08-23
 
 First stable release. The command line verbs and their switches, the keys in
