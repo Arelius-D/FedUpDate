@@ -410,9 +410,13 @@ function setupEventListeners() {
       await fetch(`${API_BASE}/api/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // The keys the engine reads. These were posted as general.theme and
+        // winget.excluded_packages, which nothing on the other side looked at,
+        // so an exclusion set here was read back by this page and ignored by
+        // the upgrade that was meant to honour it.
         body: JSON.stringify({
-          general: { theme },
-          winget: { excluded_packages: exclusions }
+          ui: { theme },
+          exclusions: { wingetPackageIds: exclusions }
         })
       });
       setDockProgress("Saved", "Application preferences saved successfully.", 100, false);
@@ -1106,8 +1110,8 @@ function populateConfigUI() {
   if (!state.config) return;
   const cfg = state.config;
 
-  if (cfg.general && cfg.general.theme) {
-    const t = cfg.general.theme;
+  if (cfg.ui && cfg.ui.theme) {
+    const t = cfg.ui.theme;
     if (t === 'System') {
       const sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
       window.applyTheme(sysLight ? 'light' : 'dark');
@@ -1129,9 +1133,9 @@ function populateConfigUI() {
   const chBadge = document.getElementById('updateChannelBadge');
   if (chBadge) chBadge.textContent = channel === 'beta' ? 'Beta' : 'Stable';
 
-  if (cfg.winget && cfg.winget.excluded_packages) {
+  if (cfg.exclusions && cfg.exclusions.wingetPackageIds) {
     const exInput = document.getElementById('exclusionsInput');
-    if (exInput) exInput.value = cfg.winget.excluded_packages.join(', ');
+    if (exInput) exInput.value = cfg.exclusions.wingetPackageIds.join(', ');
   }
 
   if (cfg.scheduler) {

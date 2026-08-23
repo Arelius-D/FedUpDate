@@ -466,9 +466,9 @@ namespace FedUpDate.UI
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
                     bmp.EndInit();
                     logoImg.Source = bmp;
-                    logoImg.Width = 92;
-                    logoImg.Height = 92;
-                    logoImg.Margin = new Thickness(0, 0, 0, 16);
+                    logoImg.Width = 168;
+                    logoImg.Height = 168;
+                    logoImg.Margin = new Thickness(0, 0, 0, 24);
                     panel.Children.Add(logoImg);
                 }
                 catch { }
@@ -477,27 +477,27 @@ namespace FedUpDate.UI
             // Title
             TextBlock titleText = new TextBlock();
             titleText.Text = "FedUpDate";
-            titleText.FontSize = 24;
+            titleText.FontSize = 34;
             titleText.FontWeight = FontWeights.Bold;
             titleText.Foreground = (SolidColorBrush)new BrushConverter().ConvertFromString("#F1F5F9");
             titleText.HorizontalAlignment = HorizontalAlignment.Center;
-            titleText.Margin = new Thickness(0, 0, 0, 4);
+            titleText.Margin = new Thickness(0, 0, 0, 6);
             panel.Children.Add(titleText);
 
             // Subtitle
             TextBlock subText = new TextBlock();
             subText.Text = "Unified Windows Update & Anti-Tamper Suite";
-            subText.FontSize = 13;
+            subText.FontSize = 15;
             subText.Foreground = (SolidColorBrush)new BrushConverter().ConvertFromString("#94A3B8");
             subText.HorizontalAlignment = HorizontalAlignment.Center;
-            subText.Margin = new Thickness(0, 0, 0, 20);
+            subText.Margin = new Thickness(0, 0, 0, 28);
             panel.Children.Add(subText);
 
             // Indeterminate Progress Bar
             ProgressBar pb = new ProgressBar();
             pb.IsIndeterminate = true;
-            pb.Width = 190;
-            pb.Height = 3;
+            pb.Width = 300;
+            pb.Height = 4;
             pb.BorderThickness = new Thickness(0);
             pb.Background = (SolidColorBrush)new BrushConverter().ConvertFromString("#1E293B");
             pb.Foreground = (SolidColorBrush)new BrushConverter().ConvertFromString("#D97706");

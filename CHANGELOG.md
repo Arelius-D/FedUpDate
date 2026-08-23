@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-08-23
+
+### Fixed
+
+- **WinGet Exclusions Set in the Interface Were Never Honoured (`gui/app.js`, `gui/Server.ps1`)**:
+  - The settings page wrote the exclusion list as `winget.excluded_packages` and read it back from the same place, so it always looked saved. The upgrade reads `exclusions.wingetPackageIds`, which is a different setting the page never wrote. A package excluded from upgrades was therefore shown as excluded and upgraded anyway. The default list is Microsoft Edge and OneDrive, so the two entries most likely to be excluded were the two least likely to be respected.
+  - The page now writes and reads the names the engine uses, for the exclusion list and for the theme. The theme happened to survive only because the server carried a fallback for the mismatch, which is no longer needed and has gone.
+
+### Changed
+
+- **The Branding Splash Is Sized for the Window It Sits In (`gui/src/Program.cs`)**:
+  - The mark was drawn into a 92 unit box in a window more than eight hundred units tall, with the wordmark and progress bar to match, so the whole composition read as small rather than deliberate. It is drawn at 168 now with the text and bar scaled with it. The source is 512 square, so it stays within its own resolution even on a display scaled to 250 percent.
+
+---
+
 ## [1.0.1] - 2026-08-23
 
 ### Changed

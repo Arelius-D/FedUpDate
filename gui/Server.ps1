@@ -130,9 +130,7 @@ function Set-EdgeProfileTheme {
 # Configure Profile Theme
 $cfg = Get-FedConfig
 $themePref = "System"
-if ($cfg.general -and $cfg.general.theme) {
-    $themePref = $cfg.general.theme
-} elseif ($cfg.ui -and $cfg.ui.theme) {
+if ($cfg.ui -and $cfg.ui.theme) {
     $themePref = $cfg.ui.theme
 }
 Set-EdgeProfileTheme -Theme $themePref
@@ -342,7 +340,7 @@ try {
             if ($urlPath -eq "/manifest.json") {
                 $cfg = Get-FedConfig
                 $isLight = $false
-                if ($cfg.general -and $cfg.general.theme -eq "Light") {
+                if ($cfg.ui -and $cfg.ui.theme -eq "Light") {
                     $isLight = $true
                 } else {
                     $regCheck = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -ErrorAction SilentlyContinue
