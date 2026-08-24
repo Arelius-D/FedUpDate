@@ -50,15 +50,22 @@
   --sys-color-accent-green: oklch(0.75 0.16 145);
   --sys-color-accent-purple: oklch(0.72 0.18 305);
   --sys-color-accent-blue: oklch(0.75 0.14 230);
-  --sys-color-accent-red: oklch(0.71 0.16 22.8);
+  --sys-color-accent-red: oklch(0.75 0.14 22.8);
   --sys-color-accent-gradient: linear-gradient(135deg, oklch(0.773 0.14 78.6) 0%, oklch(0.718 0.138 76.7) 100%);
-  --sys-color-close-hover: oklch(0.71 0.16 22.8);
+
+  /* Engine identity. Which engine a card is, never how it is doing.
+     Status lives in the badge; identity lives in the glyph, so the two can
+     share a hue without ever contradicting each other. */
+  --sys-engine-os: var(--sys-color-accent-blue);
+  --sys-engine-winget: var(--sys-color-accent-amber);
+  --sys-engine-store: var(--sys-color-accent-green);
+  --sys-color-close-hover: oklch(0.75 0.14 22.8);
   --sys-color-close-active: oklch(0.6 0.22 25);
   --sys-color-text-white: oklch(1 0 0);
 
   /* Background Ambient Radial Glows */
   --sys-bg-glow-1: oklch(0.773 0.14 78.6 / 0.15);
-  --sys-bg-glow-2: oklch(0.71 0.16 22.8 / 0.1);
+  --sys-bg-glow-2: oklch(0.75 0.14 22.8 / 0.1);
   --sys-bg-glow-3: oklch(0.773 0.14 78.6 / 0.1);
 
   /* Semantic Status Badges */
@@ -68,19 +75,19 @@
 
   --sys-badge-info-bg: oklch(0.75 0.14 230 / 0.15);
   --sys-badge-info-border: oklch(0.75 0.14 230 / 0.35);
-  --sys-badge-info-text: oklch(0.85 0.1 230);
+  --sys-badge-info-text: oklch(0.82 0.09 230);
 
   --sys-badge-purple-bg: oklch(0.72 0.18 305 / 0.15);
   --sys-badge-purple-border: oklch(0.72 0.18 305 / 0.35);
-  --sys-badge-purple-text: oklch(0.8 0.16 305);
+  --sys-badge-purple-text: oklch(0.78 0.14 305);
 
   --sys-badge-green-bg: oklch(0.75 0.16 145 / 0.15);
   --sys-badge-green-border: oklch(0.75 0.16 145 / 0.35);
   --sys-badge-green-text: oklch(0.8 0.16 145);
 
-  --sys-badge-danger-bg: oklch(0.71 0.16 22.8 / 0.15);
-  --sys-badge-danger-border: oklch(0.71 0.16 22.8 / 0.35);
-  --sys-badge-danger-text: oklch(0.71 0.16 22.8);
+  --sys-badge-danger-bg: oklch(0.75 0.14 22.8 / 0.15);
+  --sys-badge-danger-border: oklch(0.75 0.14 22.8 / 0.35);
+  --sys-badge-danger-text: oklch(0.75 0.14 22.8);
 
   /* --------------------------------------------------------------------------
      2. Typography Scale (rem-based)
@@ -212,9 +219,9 @@
   --sys-color-border-subtle: oklch(0.267 0.019 84.5 / 0.12);
   --sys-color-border-card: oklch(0.267 0.019 84.5 / 0.12);
   --sys-color-border-card-hover: oklch(0.267 0.019 84.5 / 0.25);
-  --sys-color-border-accent: oklch(0.643 0.055 81.4 / 0.45);
+  --sys-color-border-accent: oklch(0.643 0.11 78.6 / 0.45);
   --sys-color-border-interactive: oklch(0 0 0 / 0.15);
-  --sys-color-focus-ring: oklch(0.643 0.055 81.4 / 0.5);
+  --sys-color-focus-ring: oklch(0.643 0.11 78.6 / 0.5);
 
   /* Typography Colors */
   --sys-color-text-primary: oklch(0.267 0.019 84.5);
@@ -224,26 +231,35 @@
   --sys-color-text-on-accent: oklch(0.2 0.015 84.5);
 
   /* Accents & Brand (Full Chromatic Separation in Light Theme) */
-  --sys-color-accent-primary: oklch(0.643 0.055 81.4);
-  --sys-color-accent-hover: oklch(0.579 0.053 81.1);
-  --sys-color-accent-amber: oklch(0.643 0.055 81.4);
+  --sys-color-accent-primary: oklch(0.643 0.11 78.6);
+  --sys-color-accent-hover: oklch(0.579 0.105 78.6);
+  --sys-color-accent-amber: oklch(0.643 0.11 78.6);
   --sys-color-accent-green: oklch(0.6 0.12 145);
   --sys-color-accent-purple: oklch(0.58 0.14 305);
   --sys-color-accent-blue: oklch(0.65 0.1 230);
-  --sys-color-accent-red: oklch(0.543 0.174 29.7);
-  --sys-color-accent-gradient: linear-gradient(135deg, oklch(0.643 0.055 81.4) 0%, oklch(0.579 0.053 81.1) 100%);
-  --sys-color-close-hover: oklch(0.543 0.174 29.7);
+  --sys-color-accent-red: oklch(0.543 0.13 22.8);
+  --sys-color-accent-gradient: linear-gradient(135deg, oklch(0.643 0.11 78.6) 0%, oklch(0.579 0.105 78.6) 100%);
+
+  /* Engine identity, light theme. Given their own lightness rather than
+     following the accents: on a light surface the accents measure roughly 2.5
+     to 3.0 against the icon well, under the 3.0 a graphical object needs to
+     stay legible. Contrast follows lightness, not saturation, so the hue and
+     chroma stay the accents' own and only the lightness is lowered. */
+  --sys-engine-os: oklch(0.56 0.1 230);
+  --sys-engine-winget: oklch(0.56 0.11 78.6);
+  --sys-engine-store: oklch(0.56 0.12 145);
+  --sys-color-close-hover: oklch(0.543 0.13 22.8);
   --sys-color-close-active: oklch(0.45 0.18 29.7);
   --sys-color-text-white: oklch(1 0 0);
 
   /* Ambient Glows */
-  --sys-bg-glow-1: oklch(0.643 0.055 81.4 / 0.12);
-  --sys-bg-glow-2: oklch(0.543 0.174 29.7 / 0.08);
-  --sys-bg-glow-3: oklch(0.643 0.055 81.4 / 0.08);
+  --sys-bg-glow-1: oklch(0.643 0.11 78.6 / 0.12);
+  --sys-bg-glow-2: oklch(0.543 0.13 22.8 / 0.08);
+  --sys-bg-glow-3: oklch(0.643 0.11 78.6 / 0.08);
 
   /* Status Badges */
-  --sys-badge-recommended-bg: oklch(0.643 0.055 81.4 / 0.12);
-  --sys-badge-recommended-border: oklch(0.643 0.055 81.4 / 0.3);
+  --sys-badge-recommended-bg: oklch(0.643 0.11 78.6 / 0.12);
+  --sys-badge-recommended-border: oklch(0.643 0.11 78.6 / 0.3);
   --sys-badge-recommended-text: oklch(0.267 0.019 84.5);
 
   --sys-badge-info-bg: oklch(0.65 0.1 230 / 0.12);
@@ -258,18 +274,18 @@
   --sys-badge-green-border: oklch(0.6 0.12 145 / 0.3);
   --sys-badge-green-text: oklch(0.267 0.019 84.5);
 
-  --sys-badge-danger-bg: oklch(0.543 0.174 29.7 / 0.12);
-  --sys-badge-danger-border: oklch(0.543 0.174 29.7 / 0.3);
-  --sys-badge-danger-text: oklch(0.543 0.174 29.7);
+  --sys-badge-danger-bg: oklch(0.543 0.13 22.8 / 0.12);
+  --sys-badge-danger-border: oklch(0.543 0.13 22.8 / 0.3);
+  --sys-badge-danger-text: oklch(0.267 0.019 84.5);
 
   /* Elevation & Shadows */
   --sys-shadow-sm: 0 0.0625rem 0.1875rem oklch(0 0 0 / 0.08);
   --sys-shadow-md: 0 0.125rem 0.5rem oklch(0 0 0 / 0.1);
   --sys-shadow-lg: 0 0.5rem 1.5rem oklch(0 0 0 / 0.16);
-  --sys-shadow-glow: 0 0 1.25rem oklch(0.643 0.055 81.4 / 0.15);
-  --sys-shadow-hero: 0 0.25rem 1rem oklch(0.643 0.055 81.4 / 0.25);
-  --sys-shadow-hero-hover: 0 0.375rem 1.375rem oklch(0.643 0.055 81.4 / 0.35);
-  --sys-glow-brand: drop-shadow(0 0 0.5rem oklch(0.643 0.055 81.4 / 0.4));
+  --sys-shadow-glow: 0 0 1.25rem oklch(0.643 0.11 78.6 / 0.15);
+  --sys-shadow-hero: 0 0.25rem 1rem oklch(0.643 0.11 78.6 / 0.25);
+  --sys-shadow-hero-hover: 0 0.375rem 1.375rem oklch(0.643 0.11 78.6 / 0.35);
+  --sys-glow-brand: drop-shadow(0 0 0.5rem oklch(0.643 0.11 78.6 / 0.4));
 }
 
 /* --------------------------------------------------------------------------
@@ -1033,15 +1049,15 @@ body {
 }
 
 .ring-icon-os {
-  color: var(--sys-color-accent-blue);
+  color: var(--sys-engine-os);
 }
 
 .ring-icon-winget {
-  color: var(--sys-color-accent-purple);
+  color: var(--sys-engine-winget);
 }
 
 .ring-icon-store {
-  color: var(--sys-color-accent-green);
+  color: var(--sys-engine-store);
 }
 
 .ring-info {

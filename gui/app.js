@@ -595,18 +595,23 @@ function updateDashboardUI() {
 
   const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted } = state.scanData;
 
-  // OS Card
+  // The badges carry state, not identity: green when there is nothing to do,
+  // and one shared colour when there is. Three different colours were used to
+  // say the same thing, which read as three unrelated conditions rather than
+  // one. Which engine a card belongs to is said by its glyph instead.
+  const pending = 'badge-info';
+
   const osEl = document.getElementById('osBadge');
   if (osEl) {
     osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
-    osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? 'badge-info' : 'badge-green'}`;
+    osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
   }
 
   // WinGet Card
   const wingetEl = document.getElementById('wingetBadge');
   if (wingetEl) {
     wingetEl.textContent = `${WingetUpdateCount || 0} Apps Outdated`;
-    wingetEl.className = `badge-pill ${(WingetUpdateCount || 0) > 0 ? 'badge-purple' : 'badge-green'}`;
+    wingetEl.className = `badge-pill ${(WingetUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
   }
 
   // Store Card
@@ -614,7 +619,7 @@ function updateDashboardUI() {
   if (storeEl) {
     if (StoreUpdateCount !== undefined && StoreUpdateCount !== null) {
       storeEl.textContent = `${StoreUpdateCount} Apps Outdated`;
-      storeEl.className = `badge-pill ${StoreUpdateCount > 0 ? 'badge-amber' : 'badge-green'}`;
+      storeEl.className = `badge-pill ${StoreUpdateCount > 0 ? pending : 'badge-green'}`;
     } else {
       storeEl.textContent = StoreInstalled ? 'Sync Ready' : 'Not Found';
     }

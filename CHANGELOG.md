@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] - 2026-08-24
+
+### Fixed
+
+- **Engine Glyphs Were Too Faint to Read in the Light Theme (`gui/styles.css`)**:
+  - The three engine marks measured between 2.50 and 2.97 against the well they sit in, under the 3.0 a graphical object needs to stay legible. They now measure 3.57 to 3.82. Contrast follows lightness rather than saturation, so only the lightness was lowered and each mark keeps its own hue.
+
+- **Two Colours Were Specified Outside What a Screen Can Show (`gui/styles.css`)**:
+  - The information and purple badge text in the dark theme were written beyond the sRGB gamut, so the browser clipped them and what appeared was never quite what the token said. Both are now inside the gamut and still read at 6.49 and 5.48.
+
+- **The Warning Colour Was Nearly Grey and the Danger Colour Shouted (`gui/styles.css`)**:
+  - In the light theme the amber sat at a third of the saturation of every colour beside it, so it read as washed out rather than as a warning, while the red was half again more saturated than anything else and drew the eye whether or not it mattered. The set now spans a third of the range it did.
+  - Red also drifted between themes, at one hue in the dark and another in the light for no reason. Both themes now use the same red.
+  - The danger badge was the only one in the light theme using its own coloured text while the other four shared a neutral, which made it stand out twice over. All five now match.
+
+### Changed
+
+- **A Card's Colour Says Which Engine It Is, Not How It Is Doing (`gui/styles.css`, `gui/index.html`, `gui/app.js`)**:
+  - The three status badges used blue, purple and amber to say the same thing, that updates are waiting, which read as three unrelated conditions rather than one. They now share a single colour for waiting and green for nothing to do.
+  - Identity moved to the glyph, where `--sys-engine-os`, `--sys-engine-winget` and `--sys-engine-store` name what a colour is for rather than which hue it happens to be. Windows Update is blue, WinGet is amber and the Store is green, matching what the marks have always meant. The WinGet glyph had drifted to purple.
+
+### Added
+
+- **Contrast Checks (`audit/audit-contrast.js`)**:
+  - Converts the tokens to what a screen renders, composites translucent fills over the surface beneath them, and holds text to 4.5 and graphical objects to 3.0. It validates its own colour conversion against known colours first, because an unchecked conversion produces numbers that look authoritative and are not. It reports which pair failed and exits accordingly, so a palette this closely tuned cannot drift back unnoticed.
+
+---
+
 ## [1.0.2] - 2026-08-23
 
 ### Fixed
