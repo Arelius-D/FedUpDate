@@ -50,7 +50,14 @@ function Sync-FedStoreApps {
         $wingetPath = Get-FedWingetPath
         if ($wingetPath) {
             Write-FedLog "Triggering MS Store source refresh via WinGet..." -Level "INFO" -Component "StoreSync"
-            Start-Process -FilePath $wingetPath -ArgumentList "source update msstore --disable-interactivity" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+            # Captured, not inherited. Left to itself the refresh prints its own
+            # progress straight to the console, which lands unformatted in the
+            # middle of the run's output.
+            $srcOut = [System.IO.Path]::GetTempFileName()
+            $srcErr = [System.IO.Path]::GetTempFileName()
+            Start-Process -FilePath $wingetPath -ArgumentList "source update msstore --disable-interactivity" -Wait -NoNewWindow -RedirectStandardOutput $srcOut -RedirectStandardError $srcErr -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $srcOut -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $srcErr -Force -ErrorAction SilentlyContinue
             return [PSCustomObject]@{
                 Success = $true
                 Method  = "WinGet_MSStore"

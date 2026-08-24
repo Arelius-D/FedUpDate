@@ -593,7 +593,8 @@ function triggerScan() {
 function updateDashboardUI() {
   if (!state.scanData) return;
 
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted } = state.scanData;
+  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted,
+          OSScanBlocked, OSScanReason } = state.scanData;
 
   // The badges carry state, not identity: green when there is nothing to do,
   // and one shared colour when there is. Three different colours were used to
@@ -603,8 +604,17 @@ function updateDashboardUI() {
 
   const osEl = document.getElementById('osBadge');
   if (osEl) {
-    osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
-    osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
+    // A refused scan has no count. Showing 0 would state a measurement that was
+    // never taken, so it says what happened and offers the way to get one.
+    if (OSScanBlocked) {
+      osEl.textContent = 'Not checked';
+      osEl.className = 'badge-pill badge-recommended';
+      osEl.title = OSScanReason || 'The Windows Update service is disabled by the shield.';
+    } else {
+      osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
+      osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
+      osEl.title = '';
+    }
   }
 
   // WinGet Card
@@ -694,7 +704,20 @@ function updateNotificationsUI() {
     });
   }
 
-  if ((OSUpdateCount || 0) > 0) {
+  if (OSScanBlocked) {
+    items.push({
+      id: 'os-scan-blocked',
+      type: 'warn',
+      icon: '🛡️',
+      title: 'Windows Updates Not Checked',
+      desc: (OSScanReason || 'The Windows Update service is disabled by the anti-tamper shield.')
+        + ' Checking needs elevation once. The shield is restored straight afterwards.',
+      actionText: 'Check now',
+      actionHandler: 'runElevatedOSScan()'
+    });
+  }
+
+  if (!OSScanBlocked && (OSUpdateCount || 0) > 0) {
     items.push({
       id: 'os-updates',
       type: 'warn',
@@ -747,6 +770,22 @@ function updateNotificationsUI() {
       </div>` : ''}
     </div>
   `).join('');
+}
+
+async function runElevatedOSScan() {
+  setDockProgress("Checking", "Asking for elevation to check Windows updates...", 30, true);
+  try {
+    const res = await fetch(`${API_BASE}/api/scan/elevated`, { method: 'POST' });
+    const out = await res.json();
+    if (out && out.success) {
+      await triggerScan();
+    } else {
+      setDockProgress("Not checked", "Elevation was declined. The shield is untouched.", 0, false);
+      await fedNotify("Windows updates were not checked because elevation was declined. Nothing was changed.", { title: "Not checked" });
+    }
+  } catch (err) {
+    setDockProgress("Error", `Could not check: ${err.message}`, 0, false);
+  }
 }
 
 async function forceRestart() {

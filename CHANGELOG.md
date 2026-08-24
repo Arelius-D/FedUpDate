@@ -1,9 +1,25 @@
-# Changelog
-
-All notable changes to the **FedUpDate** (`fedupdate`) project will be documented in this file.
+# All notable changes to the **FedUpDate** (`fedupdate`) project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [1.0.5] - 2026-08-25
+
+### Fixed
+
+- **A Refused Update Check Was Reported as Zero (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`)**:
+  - The anti-tamper shield disables the Windows Update service on purpose. With it disabled, asking Windows what updates are pending fails outright unless the session is elevated, and that failure was caught and turned into an empty list. A refusal and a genuinely clean system therefore produced the same answer, and the interfaces printed a confident zero for a number nobody had been allowed to measure.
+  - A refused check is now recorded as refused. All three interfaces say the check did not run and why, rather than showing a count.
+  - Each of them also offers the way through: checking can be done once with elevation, and the shield is restored immediately afterwards by the same code that borrows it. Declining changes nothing.
+
+- **Tool Output Bypassed the Log (`core/OSUpdateEngine.ps1`, `core/StoreEngine.ps1`, `gui/bin/build.ps1`)**:
+  - The Defender updater, the Store source refresh and the compiler were each started in a way that hands them the console directly, so their banners and version listings appeared raw in the middle of a run, in none of the formatting used around them and in none of the log files.
+  - Their output is captured now. The one useful line Defender produces, whether signatures were actually needed, is reported through the log like everything else. The compiler is asked not to print its banner at all.
+
+- **One Log Tag Was Wider Than the Rest (`core/Logger.ps1`)**:
+  - Every level is padded so the message column lines up. WHATIF was a character wider than the other five, so any line carrying it sat out of column.
 
 ---
 

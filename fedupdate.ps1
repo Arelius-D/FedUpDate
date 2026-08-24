@@ -86,7 +86,15 @@ switch ($Command.ToLower()) {
     "scan" {
         $result = Start-FedScan
         Write-Host "`n`e[1;36m=== FEDUPDATE SCAN SUMMARY ===`e[0m"
-        Write-Host "OS Updates Pending:          $($result.OSUpdateCount)"
+        if ($result.OSScanBlocked) {
+            # Not a count. Saying 0 here would be inventing a measurement that
+            # was never taken.
+            Write-Host "OS Updates Pending:          not checked"
+            Write-Host "  $($result.OSScanReason)"
+            Write-Host "  Run 'fedupdate scan' from an elevated session to check. The shield is restored afterwards."
+        } else {
+            Write-Host "OS Updates Pending:          $($result.OSUpdateCount)"
+        }
         Write-Host "WinGet Updates Pending:      $($result.WingetUpdateCount)"
         Write-Host "Microsoft Store Updates:     $($result.StoreUpdateCount)"
         Write-Host "Microsoft Store App:         $(if ($result.StoreInstalled) { "Installed (v$($result.StoreVersion))" } else { "Not Available" })"

@@ -137,6 +137,7 @@ $argsList = @(
     "/target:winexe",
     "/platform:x64",
     "/optimize+",
+    "/nologo"
     "/out:`"$outFile`""
 )
 

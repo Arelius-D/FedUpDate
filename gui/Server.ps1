@@ -516,6 +516,14 @@ try {
                     }
                     Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
                 }
+                "/api/scan/elevated" {
+                    # Asked for explicitly from the interface. The borrow inside
+                    # the scan restores the shield in a finally block, so the
+                    # guard is back on by the time this returns however it ends.
+                    $ok = Invoke-FedElevatedOSScan
+                    if ($ok) { $global:LastScanData = $null; Start-BackgroundScan }
+                    Send-FedResponse -Context $context -Content @{ success = [bool]$ok } -ContentType "application/json"
+                }
                 "/api/version" {
                     # The remote check is cached for the life of the server process:
                     # opening Settings repeatedly must not hammer the GitHub API.

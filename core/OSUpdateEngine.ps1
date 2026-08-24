@@ -43,10 +43,28 @@ function Update-FedDefenderDefinitions {
         return $true
     }
 
+    # Output is captured rather than inherited. With -NoNewWindow the tool
+    # writes straight to the console, so its banner and version list appeared
+    # unformatted in the middle of the run, outside the log and outside the file.
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+
     try {
-        $process = Start-Process -FilePath $mpPath -ArgumentList "-SignatureUpdate -MMPC" -Wait -PassThru -NoNewWindow
+        $process = Start-Process -FilePath $mpPath -ArgumentList "-SignatureUpdate -MMPC" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+
+        # The tool says whether anything was actually needed, which is worth
+        # keeping. The version banner around it is not.
+        $summary = $null
+        foreach ($line in @(Get-Content $outFile -ErrorAction SilentlyContinue)) {
+            if ($line -match 'Signature update (finished|failed)') { $summary = $line.Trim() }
+        }
+
         if ($process.ExitCode -eq 0) {
-            Write-FedLog "Microsoft Defender signatures updated successfully." -Level "SUCCESS" -Component "Defender"
+            if ($summary) {
+                Write-FedLog "Microsoft Defender signatures: $summary" -Level "SUCCESS" -Component "Defender"
+            } else {
+                Write-FedLog "Microsoft Defender signatures updated successfully." -Level "SUCCESS" -Component "Defender"
+            }
             return $true
         } else {
             Write-FedLog "MpCmdRun exited with code $($process.ExitCode)." -Level "WARN" -Component "Defender"
@@ -55,6 +73,9 @@ function Update-FedDefenderDefinitions {
     } catch {
         Write-FedLog "Failed to trigger Defender update: $_" -Level "ERROR" -Component "Defender"
         return $false
+    } finally {
+        Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -101,7 +122,12 @@ function Invoke-FedWithUpdateService {
         # brought up on demand and needs no intervention or elevation.
         if ($originalStartType -eq "Disabled") {
             if (-not $isAdmin) {
-                Write-FedLog "Windows Update service is disabled and this session is not elevated, so results may be incomplete." -Level "WARN" -Component "OSUpdate"
+                # Recorded, not merely warned about. The caller has to be able to
+                # tell "nothing is pending" apart from "nobody was allowed to
+                # look", because otherwise both are the same empty list.
+                $script:FedOSScanBlocked = $true
+                $script:FedOSScanReason = "The Windows Update service is disabled by the anti-tamper shield, and checking for updates needs elevation."
+                Write-FedLog "Windows Update service is disabled and this session is not elevated, so no scan could run." -Level "WARN" -Component "OSUpdate"
             } else {
                 Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
                 Start-Service -Name $serviceName -ErrorAction Stop
@@ -139,6 +165,8 @@ function Get-FedOSUpdates {
     )
 
     Write-FedLog "Scanning for Windows Operating System updates..." -Level "INFO" -Component "OSUpdate"
+    $script:FedOSScanBlocked = $false
+    $script:FedOSScanReason = $null
     $results = [System.Collections.Generic.List[PSObject]]::new()
 
     try {
@@ -195,7 +223,11 @@ function Get-FedOSUpdates {
         } | Out-Null
         Remove-Job -Job $searchJob -Force -ErrorAction SilentlyContinue
 
-        Write-FedLog "Found $($results.Count) pending Windows Update(s)." -Level "SUCCESS" -Component "OSUpdate"
+        if ($script:FedOSScanBlocked) {
+            Write-FedLog "Windows updates were not checked. $($script:FedOSScanReason)" -Level "WARN" -Component "OSUpdate"
+        } else {
+            Write-FedLog "Found $($results.Count) pending Windows Update(s)." -Level "SUCCESS" -Component "OSUpdate"
+        }
     } catch {
         Write-FedLog "Failed to query Windows Update COM API: $_" -Level "WARN" -Component "OSUpdate"
     }
@@ -362,3 +394,63 @@ function Install-FedOSUpdates {
 }
 
 Export-ModuleMember -Function Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates -ErrorAction SilentlyContinue
+
+function Get-FedOSScanState {
+    <#
+    .SYNOPSIS
+        Whether the last Windows Update scan was able to run at all.
+    .DESCRIPTION
+        A scan that was refused and a scan that found nothing both produce an
+        empty list. This says which of the two happened, so an interface can
+        offer the way forward instead of reporting a zero it never measured.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return [PSCustomObject]@{
+        Blocked  = [bool]$script:FedOSScanBlocked
+        Reason   = $script:FedOSScanReason
+        CanRetry = [bool]$script:FedOSScanBlocked
+    }
+}
+
+function Invoke-FedElevatedOSScan {
+    <#
+    .SYNOPSIS
+        Re-runs the Windows Update scan once, with elevation.
+    .DESCRIPTION
+        The shield disables the update service, so a scan needs elevation to
+        borrow it back. The borrow already restores the shield in a finally
+        block, so the guard is on again by the time this returns whether the
+        scan succeeded, failed or was cancelled.
+
+        Declining the prompt is an answer: nothing is changed and the caller is
+        told the scan did not run.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        return @(Get-FedOSUpdates)
+    }
+
+    try {
+        $scriptRoot = Split-Path -Parent $PSScriptRoot
+        $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+
+        Write-FedLog "Requesting elevation to check for Windows updates. The shield is restored afterwards." -Level "INFO" -Component "OSUpdate"
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" scan" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+
+        if ($null -ne $p -and $p.ExitCode -eq 0) {
+            Write-FedLog "Elevated Windows Update scan finished." -Level "SUCCESS" -Component "OSUpdate"
+            return $true
+        }
+
+        Write-FedLog "The elevated scan did not complete." -Level "WARN" -Component "OSUpdate"
+        return $false
+    } catch {
+        Write-FedLog "Elevation was declined, so Windows updates were not checked. The shield is untouched." -Level "WARN" -Component "OSUpdate"
+        return $false
+    }
+}

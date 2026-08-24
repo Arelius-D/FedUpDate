@@ -55,7 +55,7 @@ function Write-FedLog {
             "WARN"    { "`e[33m[WARN ]`e[0m" }
             "ERROR"   { "`e[91m[ERROR]`e[0m" }
             "SUCCESS" { "`e[92m[OK   ]`e[0m" }
-            "WHATIF"  { "`e[35m[WHATIF]`e[0m" }
+            "WHATIF"  { "`e[35m[WHAT ]`e[0m" }
             Default   { "[$Level]" }
         }
         $compStr = "`e[94m[$Component]`e[0m"

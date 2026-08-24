@@ -43,12 +43,14 @@ function Show-FedStatusBar {
         $rebootBadge = Get-FedRebootBadge -Severity $reboot.Severity
         Write-Host " Status: $rebootBadge | Ready for scan or update"
     } else {
-        $osCount = $ScanResult.OSUpdateCount
+        # A blocked scan has no number to show, so it says so rather than
+        # borrowing the one that means "nothing pending".
+        $osCount = if ($ScanResult.OSScanBlocked) { "not checked" } else { "$($ScanResult.OSUpdateCount) KBs" }
         $wgCount = $ScanResult.WingetUpdateCount
         $rebootBadge = Get-FedRebootBadge -Severity $ScanResult.RebootSeverity
         $guardBadge = if ($ScanResult.WatchdogDrifted) { "`e[43;30m DRIFT DETECTED `e[0m" } else { "`e[42;30m SHIELD ACTIVE `e[0m" }
 
-        Write-Host " `e[1mOS Updates:`e[0m `e[36m$osCount KBs`e[0m | `e[1mWinGet:`e[0m `e[35m$wgCount Apps`e[0m | `e[1mStore:`e[0m `e[32mSynced`e[0m | `e[1mReboot:`e[0m $rebootBadge | `e[1mGuard:`e[0m $guardBadge"
+        Write-Host " `e[1mOS Updates:`e[0m `e[36m$osCount`e[0m | `e[1mWinGet:`e[0m `e[35m$wgCount Apps`e[0m | `e[1mStore:`e[0m `e[32mSynced`e[0m | `e[1mReboot:`e[0m $rebootBadge | `e[1mGuard:`e[0m $guardBadge"
     }
     Write-Host "`e[90m--------------------------------------------------------------------------------`e[0m"
 }
@@ -117,6 +119,10 @@ function Start-FedTUI {
                 $lastScan = Start-FedScan
                 
                 Write-Host "`n`e[1;37m--- OS Updates Pending ---`e[0m"
+                if ($lastScan.OSScanBlocked) {
+                    Write-Host " `e[93mNot checked.`e[0m $($lastScan.OSScanReason)"
+                    Write-Host " `e[90mRun the text interface from an elevated session to check. The shield is restored afterwards.`e[0m"
+                }
                 if ($lastScan.OSUpdates.Count -eq 0) {
                     Write-Host " `e[32mNo pending Windows OS updates.`e[0m"
                 } else {
