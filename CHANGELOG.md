@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] - 2026-08-24
+
+### Fixed
+
+- **The Boot Guard Reported Success Without Checking (`core/AntiTamperWatchdog.ps1`)**:
+  - Registering the on-boot guard piped its result away and did not stop on an error, so a refusal was discarded and the guard was reported as registered either way. The message said the machine was defended at startup whether or not anything had been created, which is the one answer that stops anybody looking further.
+  - Registration now stops on an error and asks for the task back afterwards. If it is not there, it says so plainly rather than claiming otherwise.
+
+- **A Guard That Could Not Be Seen Was Reported as Missing (`core/AntiTamperWatchdog.ps1`)**:
+  - The guard runs as the system account and its definition is readable only by the system and by administrators, so an ordinary session cannot see it at all. The audit read that silence as absence and reported the guard as not installed, which was wrong in the common case and alarming in exactly the situation where nothing was actually wrong.
+  - An ordinary session is now told the guard cannot be seen without elevation, rather than told it is missing. A guard that is genuinely absent still counts as drift, but only from a session able to tell the difference, so a standard user is never marked as permanently drifted for a state they cannot observe.
+
+---
+
 ## [1.0.3] - 2026-08-24
 
 ### Fixed

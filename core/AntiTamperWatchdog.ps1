@@ -82,8 +82,24 @@ function Get-FedWatchdogAudit {
     $guardTask = Get-ScheduledTask -TaskName "FedUpDate-Watchdog-Enforcer" -ErrorAction SilentlyContinue
     $taskInstalled = ($null -ne $guardTask)
     $taskState = if ($taskInstalled) { $guardTask.State.ToString() } else { "Not Installed" }
-    $taskExpected = if ($taskInstalled) { "Ready" } else { "Optional" }
-    $taskDrifted = ($taskInstalled -and $taskState -eq "Disabled")
+
+    # The guard runs as SYSTEM, and its definition is readable only by SYSTEM
+    # and administrators. An ordinary session therefore cannot see it at all and
+    # is told nothing rather than told it is missing: reporting an absent guard
+    # from a session that could never have seen one would mark every standard
+    # user as permanently drifted.
+    #
+    # A guard that is genuinely absent still counts as drift, but only when this
+    # session is able to tell the difference.
+    $canSeeTasks = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $wantsGuard = [bool]$config.watchdog.enforceOnBoot
+
+    if (-not $taskInstalled -and -not $canSeeTasks) {
+        $taskState = "Not visible without elevation"
+    }
+
+    $taskExpected = if ($wantsGuard) { "Ready" } else { "Not required" }
+    $taskDrifted = $wantsGuard -and $canSeeTasks -and (-not $taskInstalled -or $taskState -eq "Disabled")
 
     $itemTask = [PSCustomObject]@{
         Name     = "FedUpDate Boot Persistence Task"
@@ -210,11 +226,23 @@ function Install-FedWatchdogTask {
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew
 
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-        Write-FedLog "Registered silent on-boot watchdog task '$taskName' (SYSTEM, session 0)." -Level "SUCCESS" -Component "Watchdog"
+        # -ErrorAction Stop because registration can fail without throwing, and
+        # the result is piped away. Without it a refusal is silently discarded.
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+
+        # Asking for it back is the only proof it is there. Reporting a guard
+        # that was never registered is worse than reporting no guard at all,
+        # because it is the answer that stops anybody looking.
+        $registered = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if (-not $registered) {
+            Write-FedLog "The boot guard reported no error but is not present afterwards. Nothing will re-apply your settings at startup." -Level "ERROR" -Component "Watchdog"
+            return $false
+        }
+
+        Write-FedLog "Registered silent on-boot watchdog task '$taskName' (SYSTEM, session 0), verified present." -Level "SUCCESS" -Component "Watchdog"
         return $true
     } catch {
-        Write-FedLog "Failed to register watchdog task: $_" -Level "WARN" -Component "Watchdog"
+        Write-FedLog "Failed to register the boot guard: $($_.Exception.Message)" -Level "ERROR" -Component "Watchdog"
         return $false
     }
 }
