@@ -8,9 +8,24 @@
 
 [CmdletBinding()]
 param(
+    # Deliberately not a ValidateSet. A set rejects the argument before this
+    # script runs at all, so "fedupdate --help" produced a parameter binding
+    # error from PowerShell rather than the help it asked for. The value is
+    # checked below, where an unrecognised command can be answered properly.
     [Parameter(Position = 0)]
-    [ValidateSet("scan", "check", "update", "watchdog", "rollback", "schedule", "config", "logs", "version", "self-update", "tui", "gui", "uninstall", "help")]
     [string]$Command = "tui",
+
+    # A single dash is read as a parameter name before any positional argument
+    # is considered, so "-h" can only be honoured by existing as one.
+    [Parameter()]
+    [Alias("h")]
+    [switch]$Help,
+
+    # Same reason as -Help. There is no -v alias: PowerShell resolves a single
+    # letter v to its own -Verbose, and taking it here would make the two
+    # ambiguous rather than useful.
+    [Parameter()]
+    [switch]$Version,
 
     [Parameter()]
     [Alias("a")]
@@ -81,6 +96,40 @@ Import-Module $engineModule -Force -DisableNameChecking
 
 # Route Commands
 $isWhatIf = $WhatIf.IsPresent
+
+# The spellings people actually type. Asking for help is the one thing that must
+# never fail, so every common form of it reaches the same place.
+$FedCommands = @(
+    "scan", "check", "update", "watchdog", "rollback", "schedule",
+    "config", "logs", "version", "self-update", "tui", "gui", "uninstall", "help"
+)
+
+$FedAliases = @{
+    "--help"    = "help"
+    "-help"     = "help"
+    "/?"        = "help"
+    "/help"     = "help"
+    "-?"        = "help"
+    "--version" = "version"
+    "-version"  = "version"
+    "--update"  = "update"
+    "--scan"    = "scan"
+}
+
+if ($Help) { $Command = "help" }
+if ($Version) { $Command = "version" }
+
+$requested = $Command
+if ($FedAliases.ContainsKey($Command.ToLower())) {
+    $Command = $FedAliases[$Command.ToLower()]
+}
+
+if ($FedCommands -notcontains $Command.ToLower()) {
+    Write-Host "Unknown command '$requested'." -ForegroundColor Yellow
+    Write-Host "Available: $($FedCommands -join ', ')"
+    Write-Host "Try 'fedupdate help'."
+    exit 2
+}
 
 switch ($Command.ToLower()) {
     "scan" {

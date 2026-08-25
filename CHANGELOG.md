@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-08-25
+
+### Fixed
+
+- **Asking for Help Produced a Parameter Binding Error (`fedupdate.ps1`)**:
+  - The command name was checked against a fixed list before the script ran, so anything outside it was refused by PowerShell rather than answered. Asking for help in any of the usual ways produced an error about validation sets, and a single dash form was read as the name of a parameter that does not exist.
+  - Help now answers to every spelling people reach for, and the version does too. There is no single letter form for version, because PowerShell resolves that to its own verbose switch and claiming it here would make both ambiguous.
+  - A command that is genuinely unrecognised is answered by the application: it says which one it did not recognise, lists what it accepts, and exits with a failure code rather than printing an internal binding error.
+
+---
+
 ## [1.0.7] - 2026-08-25
 
 ### Fixed
