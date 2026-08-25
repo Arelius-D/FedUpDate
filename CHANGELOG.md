@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-08-25
+
+### Fixed
+
+- **The Dashboard Stopped Rendering When a Scan Reported It Was Refused (`gui/app.js`)**:
+  - The notification list read whether the update check had been refused, but never took that value from the scan it was given, so every render raised an error. The error was caught by the polling that waits for a scan to finish, which then kept waiting rather than stopping, so the interface only appeared once that polling gave up on its own after roughly a minute and a half.
+  - The desktop interface was the only one affected. The command line, the text interface and the engine were reading the value correctly throughout.
+
+---
+
 ## [1.0.5] - 2026-08-25
 
 ### Fixed
