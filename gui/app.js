@@ -650,7 +650,8 @@ function updateNotificationsUI() {
   if (!notifList || !state.scanData) return;
 
   const items = [];
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted } = state.scanData;
+  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted,
+          OSScanBlocked, OSScanReason } = state.scanData;
 
   if (WatchdogDrifted) {
     items.push({
