@@ -26,7 +26,13 @@
             <img src="/assets/app/titlebar-24.png" srcset="/assets/app/titlebar-24.png 1x, /assets/app/titlebar-48.png 2x, /assets/app/titlebar-96.png 4x" class="brand-icon" alt="FedUpDate Logo" width="22" height="22">
           </div>
           <span class="brand-title">FedUpDate</span>
+          <!-- Version in the title bar, hidden rather than removed. The version
+               is still shown in the corner panel on Settings, which is where it
+               is actually looked for. Restore by uncommenting; loadVersionInfo
+               already guards for the element being absent, so nothing else
+               needs changing either way.
           <span class="badge-pill badge-version" id="appVersionBadge">&nbsp;</span>
+          -->
         </div>
       </div>
 

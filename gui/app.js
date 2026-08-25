@@ -284,15 +284,22 @@ function setupEventListeners() {
   // Titlebar dragging for native borderless window
   const titlebar = document.getElementById('appTitleBar');
   if (titlebar) {
+    // What counts as furniture rather than content. A press on furniture moves
+    // the window; a press on anything listed here does not. The notification
+    // panel is inside the title bar, so without naming it a press on a
+    // notification dragged the whole window instead of selecting the text, and
+    // a double click maximised it.
+    const notDraggable = 'button, input, select, a, .window-caption-controls, .notif-flyout';
+
     titlebar.addEventListener('mousedown', (e) => {
-      if (e.target.closest('button, input, select, a, .window-caption-controls')) return;
+      if (e.target.closest(notDraggable)) return;
       if (e.button === 0) {
         sendWindowAction('drag');
       }
     });
     // Double click titlebar to toggle maximize
     titlebar.addEventListener('dblclick', (e) => {
-      if (e.target.closest('button, input, select, a, .window-caption-controls')) return;
+      if (e.target.closest(notDraggable)) return;
       sendWindowAction('max');
     });
   }

@@ -300,6 +300,24 @@
   scrollbar-color: var(--sys-color-border-card-hover) transparent;
 }
 
+/* Selection is off everywhere by default, so dragging across the window moves
+   it rather than highlighting the furniture. That is right for chrome and wrong
+   for the parts that are only ever text: what the engine reported, and what a
+   notification says. Those read back, get pasted into an issue, or get quoted,
+   and having to retype them from a screenshot is absurd.
+
+   Deliberately narrow. The terminal's own toolbar and tabs, the notification
+   buttons, the navigation rail and every badge stay unselectable, so a drag
+   that starts on furniture still drags the window. */
+.terminal-body,
+.terminal-body .log-line,
+.dock-term-text,
+.notif-item-title,
+.notif-item-desc {
+  user-select: text;
+  cursor: text;
+}
+
 ::-webkit-scrollbar {
   width: var(--sys-space-smd);
   height: var(--sys-space-smd);
@@ -798,7 +816,7 @@ body {
   gap: var(--sys-space-md);
   color: var(--sys-color-text-secondary);
   cursor: pointer;
-  transition: background var(--sys-motion-duration-fast) var(--sys-motion-ease-default), color var(--sys-motion-duration-fast) var(--sys-motion-ease-default), transform 0.05s ease;
+  transition: background var(--sys-motion-duration-fast) var(--sys-motion-ease-default), color var(--sys-motion-duration-fast) var(--sys-motion-ease-default), transform 0.05s ease, padding-left var(--sys-motion-duration-normal) var(--sys-motion-ease-fluent), gap var(--sys-motion-duration-normal) var(--sys-motion-ease-fluent);
   white-space: nowrap;
   box-sizing: border-box;
 }
@@ -840,26 +858,37 @@ body {
   fill: currentColor;
 }
 
+/* The label fades and unfurls with the rail. It used to be display none until
+   the moment the rail was told to expand, and display cannot animate, so the
+   text appeared at full size inside a rail still only a glyph wide and was
+   crammed until the width caught up. */
 .nav-label {
-  display: none;
   font-size: var(--sys-font-size-body);
   font-weight: var(--sys-font-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 0;
+  max-width: 0;
+  transition: opacity var(--sys-motion-duration-fast) var(--sys-motion-ease-default), max-width var(--sys-motion-duration-normal) var(--sys-motion-ease-fluent);
 }
 
 .nav-rail.expanded .nav-label {
-  display: inline-block;
+  opacity: 1;
+  max-width: var(--sys-dim-nav-expanded-width);
 }
 
 /* Collapsed rail. The row fills the rail's content box, so the inline padding
    that positions a glyph next to its label becomes a fixed offset from the left
    edge once the label is gone, leaving the glyph off the rail's centre line.
    Centring the row and dropping that padding puts every glyph on the same axis. */
+/* Collapsed. The glyph is centred by offset rather than by changing the
+   alignment: justify-content cannot animate, so flipping it made the glyph jump
+   to its new place instantly while the rail was still sliding. An offset of
+   space-md centres a space-1_25 glyph inside the collapsed row, and it now
+   travels the short distance to its expanded position instead of teleporting. */
 .nav-rail:not(.expanded) .nav-toggle-btn,
 .nav-rail:not(.expanded) .nav-item {
-  justify-content: center;
-  padding-left: 0;
+  padding-left: var(--sys-space-md);
   padding-right: 0;
   gap: 0;
 }

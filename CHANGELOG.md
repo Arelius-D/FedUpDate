@@ -5,6 +5,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.9] - 2026-08-26
+
+### Fixed
+
+- **Pressing a Notification Dragged the Window (`gui/app.js`)**:
+  - The notification panel sits inside the title bar, and the title bar treats a press anywhere on it as the start of moving the window. Only buttons and inputs were exempt, so pressing on the text of a notification moved the whole window instead, and a double click maximised it.
+  - The panel is now treated as content rather than as furniture. Everything else in the title bar still moves the window as before.
+
+- **Expanding the Navigation Jumped Rather Than Moved (`gui/styles.css`)**:
+  - Only the width of the rail was animated. The alignment of each row, its spacing and the appearance of each label all changed in the same instant the rail began to move, and none of those can be animated, so the glyphs jumped to their new place and the labels appeared at full size inside a rail that had not widened yet.
+  - The glyph is now placed by an offset that travels with the rail instead of by an alignment that flips, and the labels fade and unfurl as it opens.
+
+### Changed
+
+- **Text That Is Only Text Can Be Selected (`gui/styles.css`)**:
+  - Nothing in the interface could be selected or copied, including the log. What the engine reported and what a notification says are read back, pasted into an issue and quoted, and copying them from a screenshot is absurd.
+  - The streamed log lines, the live line in the dock and the text of a notification can now be selected. The toolbars, tabs, navigation and buttons still cannot, so a press on the window furniture still moves the window.
+
+- **The Version Left the Title Bar (`gui/index.html`)**:
+  - It is still reported in the corner panel on the settings page, which is where it is looked for. The markup is commented rather than removed.
+
+---
+
 ## [1.0.8] - 2026-08-25
 
 ### Fixed
