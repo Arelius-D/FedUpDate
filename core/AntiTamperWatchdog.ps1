@@ -196,7 +196,13 @@ function Install-FedWatchdogTask {
     [CmdletBinding()]
     param(
         [Parameter()]
-        [switch]$WhatIf
+        [switch]$WhatIf,
+
+        # How often the guard re-asserts the desired state while the machine is
+        # running. Windows undoes it within minutes, so checking only at startup
+        # means the shield is down for almost the whole session.
+        [Parameter()]
+        [int]$IntervalMinutes = 15
     )
 
     $taskName = "FedUpDate-Watchdog-Enforcer"
@@ -207,7 +213,7 @@ function Install-FedWatchdogTask {
     $actionArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" watchdog enforce"
 
     if ($WhatIf) {
-        Write-FedLog "[WHATIF] Would register Scheduled Task '$taskName' at startup as SYSTEM: $pwshPath $actionArgs" -Level "WHATIF" -Component "Watchdog"
+        Write-FedLog "[WHATIF] Would register Scheduled Task '$taskName' as SYSTEM, at startup and every $IntervalMinutes minutes: $pwshPath $actionArgs" -Level "WHATIF" -Component "Watchdog"
         return $true
     }
 
@@ -222,7 +228,22 @@ function Install-FedWatchdogTask {
         # in session 0, so the boot guard never shows a console window and never
         # raises a UAC prompt when the user signs in.
         $action = New-ScheduledTaskAction -Execute $pwshPath -Argument $actionArgs
-        $trigger = New-ScheduledTaskTrigger -AtStartup
+        # Startup alone is not enough. Windows repairs its own update
+        # components while the machine is running, not only across a restart, so
+        # a guard that fires once at boot loses the setting minutes later and
+        # does not look again until the next one. Re-asserting on an interval is
+        # what makes this a watchdog rather than a boot script.
+        # Two triggers, because one is not enough on its own. The boot trigger
+        # covers a restart, but its repetition only starts counting once it has
+        # fired, so on a machine that is already running it would not re-assert
+        # until the next boot. The second trigger starts now and repeats for the
+        # life of the session, which is when Windows actually undoes the work.
+        $bootTrigger = New-ScheduledTaskTrigger -AtStartup
+        $bootTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)).Repetition
+
+        $nowTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
+
+        $trigger = @($bootTrigger, $nowTrigger)
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew
 
@@ -239,7 +260,7 @@ function Install-FedWatchdogTask {
             return $false
         }
 
-        Write-FedLog "Registered silent on-boot watchdog task '$taskName' (SYSTEM, session 0), verified present." -Level "SUCCESS" -Component "Watchdog"
+        Write-FedLog "Registered watchdog task '$taskName' (SYSTEM, session 0), at startup and every $IntervalMinutes minutes, verified present." -Level "SUCCESS" -Component "Watchdog"
         return $true
     } catch {
         Write-FedLog "Failed to register the boot guard: $($_.Exception.Message)" -Level "ERROR" -Component "Watchdog"

@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-08-25
+
+### Fixed
+
+- **The Shield Was Applied Once at Startup and Lost for the Rest of the Session (`core/AntiTamperWatchdog.ps1`)**:
+  - Windows repairs its own update components while the machine is running, not only across a restart. The guard was registered to run at startup and nothing more, so it applied the chosen settings once, Windows undid them within minutes, and nothing looked again until the next restart. The settings were therefore absent for almost the whole time the machine was in use, and enforcing them by hand only lasted until Windows next intervened.
+  - The guard now re-applies the chosen state every fifteen minutes for as long as the machine is running, so tampering is reversed rather than merely noticed at the next boot. The interval is a parameter.
+  - It carries two triggers rather than one. A startup trigger only begins repeating once it has fired, which means a machine already running would have waited until its next restart before the guard ever ran again. The second trigger begins immediately and repeats for the life of the session.
+
+---
+
 ## [1.0.6] - 2026-08-25
 
 ### Fixed
