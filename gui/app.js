@@ -702,7 +702,9 @@ function updateNotificationsUI() {
     items.push({
       id: 'reboot-advisory',
       type: 'info',
-      icon: 'ℹ️',
+      // Depicts the subject, housekeeping, rather than the severity. Every other
+      // card's glyph says what it is about; the type says how much it matters.
+      icon: '🧹',
       title: 'Cleanup Queued For Next Restart',
       desc: ((RebootReasons && RebootReasons.length > 0)
         ? RebootReasons.join(' ')

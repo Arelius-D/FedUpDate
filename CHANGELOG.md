@@ -5,6 +5,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.10] - 2026-08-26
+
+### Changed
+
+- **The Cleanup Notice Shows What It Is About (`gui/app.js`)**:
+  - Every notification carries a glyph that depicts its subject, a shield for the watchdog, a package for updates, a hazard for a restart the system is waiting on, and the card's type says how much it matters. The cleanup notice was the exception: its glyph said only that it was informational, which is the one thing the card's colour already said. It now carries a broom, which says what it is about and, being calm, reinforces that nothing needs doing.
+
+---
+
 ## [1.0.9] - 2026-08-26
 
 ### Fixed
