@@ -107,19 +107,11 @@ defended and Windows may revert them later. Unattended:
 
 ## 🖥️ Interfaces
 
-The same engine, three ways in. All three share one configuration, one log and
-one state ledger.
-
 ### Desktop GUI
 
 ```powershell
 fedupdate gui
 ```
-
-A native Fluent 2 window: Mica backdrop, custom title bar, a notification
-centre that names what it is talking about, and a docked task drawer streaming
-the engine's log as it runs. Log lines and notification text can be selected
-and copied.
 
 ![The dashboard in the dark theme](assets/screenshots/gui-dashboard-dark.png)
 
@@ -132,10 +124,6 @@ fedupdate tui
 # or simply
 fedupdate
 ```
-
-A keyboard-driven dashboard for the terminal. The status bar carries the same
-three-state reading as the desktop interface: a restart the system is genuinely
-waiting on, routine installer cleanup queued for the next one, or nothing.
 
 ```text
     ______         __  __        ____        __
@@ -160,9 +148,6 @@ MAIN MENU
 ```
 
 ### Command Line
-
-Scriptable and pipe-friendly. Every command exits non-zero on failure, and
-`fedupdate check` exits `1` when anything is pending, for use in scripts.
 
 | Command | What it does |
 |---------|--------------|
