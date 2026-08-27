@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.14] - 2026-08-28
+
+### Fixed
+
+- **The Terminal Banner Spelled The Name Wrong (`tui/TuiEngine.ps1`, `README.md`)**:
+  - The lettering that opens the text interface was damaged. A backtick belongs in the middle of the artwork, and a backtick is also how PowerShell escapes the next character, so the one in the source was read as an instruction rather than as ink and took the character after it with it. The row carrying the descender of the p was missing outright. What was left ran the U and the p together into a single shape that most people read as a W, so the application introduced itself under a name it does not have.
+  - The lettering is restored in full, the backtick is escaped so it survives as a character, and the descender row is back. The name reads as FedUpDate.
+
+### Changed
+
+- **The Line Under The Banner Starts At The Left Edge (`tui/TuiEngine.ps1`)**:
+  - It was indented by four spaces for no reason, so it sat adrift of the lettering above it and the rule below it. It now begins where every other line on the screen begins.
+
+---
+
 ## [1.0.13] - 2026-08-28
 
 ### Changed
