@@ -256,13 +256,37 @@ function Install-FedOSUpdates {
         $UpdatesToInstall = Get-FedOSUpdates -IncludeDefender:$false
     }
 
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $scanState = Get-FedOSScanState
+
     if ($UpdatesToInstall.Count -eq 0) {
-        Write-FedLog "No pending Windows OS updates to install." -Level "INFO" -Component "OSUpdate"
-        return [PSCustomObject]@{
-            SuccessCount   = 0
-            FailCount      = 0
-            RebootRequired = $false
+        # An empty list means one of two things, and they must not be confused:
+        # nothing is pending, or nobody was allowed to look. With the shield on
+        # an unelevated scan is refused, and treating that refusal as "nothing
+        # pending" meant an update run never installed a Windows update and
+        # still reported itself complete. When the scan was refused, the
+        # decision is handed to an elevated run below, which can both look and
+        # install in one go.
+        if (-not $scanState.Blocked -or $isAdmin) {
+            Write-FedLog "No pending Windows OS updates to install." -Level "INFO" -Component "OSUpdate"
+            return [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = 0
+                RebootRequired = $false
+            }
         }
+
+        if ($WhatIf) {
+            Write-FedLog "[WHATIF] Windows updates could not be checked without elevation, so none can be listed. A real run would ask for it." -Level "WHATIF" -Component "OSUpdate"
+            return [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = 0
+                RebootRequired = $false
+                NotChecked     = $true
+            }
+        }
+
+        Write-FedLog "Windows updates could not be checked without elevation. Asking for it, so they can be checked and installed together." -Level "INFO" -Component "OSUpdate"
     }
 
     if ($WhatIf) {
@@ -280,7 +304,6 @@ function Install-FedOSUpdates {
     # Installing through the Update Agent requires elevation. Prompt for it the
     # same way the watchdog does, rather than failing or stalling on a COM call
     # that cannot succeed.
-    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
         try {
             $scriptRoot = Split-Path -Parent $PSScriptRoot
@@ -303,7 +326,10 @@ function Install-FedOSUpdates {
                 Error          = "Elevated run returned exit code $($p.ExitCode)"
             }
         } catch {
-            Write-FedLog "Could not elevate for Windows Update installation: $($_.Exception.Message)" -Level "ERROR" -Component "OSUpdate"
+            # Declining is an answer. It is reported as what it is, not as an
+            # error and not as "nothing pending", because in the refused-scan
+            # case nothing was ever looked at.
+            Write-FedLog "Elevation was declined, so Windows updates were neither checked nor installed. Nothing was changed." -Level "WARN" -Component "OSUpdate"
             return [PSCustomObject]@{
                 SuccessCount   = 0
                 FailCount      = $UpdatesToInstall.Count

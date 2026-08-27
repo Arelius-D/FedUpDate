@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.12] - 2026-08-26
+
+### Fixed
+
+- **An Update Run Skipped Windows Updates Whenever the Shield Was On (`core/OSUpdateEngine.ps1`)**:
+  - Installing begins by checking what is pending. With the shield on, that check is refused unless the session is elevated, and the refusal came back as an empty list, which the installer read as nothing to do. It then reported the run complete. The elevation it needed existed a few lines further down and was never reached, because the decision not to bother had already been taken on the strength of a check that never ran. Whenever the shield was doing its job, which is the normal state, no Windows update was ever installed by a run started from the command line, the text interface or the desktop interface.
+  - A refused check is no longer mistaken for an empty one. When the check is refused and the session is not elevated, the run asks for elevation, so that checking and installing happen together in one elevated pass. A check that ran and genuinely found nothing still reports nothing pending and asks for nothing. Declining the prompt is reported as exactly that, neither as an error nor as nothing pending, and a simulated run says it could not check rather than pretending it did.
+
+---
+
 ## [1.0.11] - 2026-08-26
 
 ### Fixed
