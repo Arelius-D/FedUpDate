@@ -27,6 +27,12 @@ An ultra-lightweight, transparent, and modern Windows 11 update management suite
 - **Full `-WhatIf` Simulation**:
   - Simulate update scans, installations, watchdog enforcements, and rollbacks without modifying a single byte on your system.
 
+- **Honest Restart Handling**:
+  - A pending restart is graded, not assumed. Servicing flags and files replaced in place mean the system is waiting; an installer's temporary folder queued for deletion is routine cleanup and is reported as exactly that, with the paths named. The interfaces never demand a restart that would not change anything.
+
+- **Update Channels & In-Place Updates**:
+  - Follow published releases on the stable channel or prereleases on beta. Self-update pulls from the branch the chosen channel is cut from, so the version offered is always the version delivered.
+
 - **Triple-Interface Flexibility**:
   - **Modern Fluent 2 Desktop GUI**: Glassmorphic Mica/Acrylic backdrops, custom 48px extended title bar, 3 glowing status rings, SettingsCards, badge pills, and a real-time docked task progress drawer with a live terminal stream.
   - **Interactive Terminal TUI**: Fast keyboard-driven ANSI dashboard with interactive checkboxes and meters.
@@ -56,13 +62,70 @@ WebView2 libraries, pulled from Microsoft's NuGet CDN.
 
 CLI and TUI are pure PowerShell and need no compilation.
 
-### Launching the Modern Desktop GUI
+### Updating
+
+FedUpDate updates itself in place, from inside the app or from the command line:
+
+```powershell
+fedupdate self-update
+```
+
+Two update channels are available, chosen under Settings or as `updateChannel`
+in `data/config.json`:
+
+| Channel  | Offered                          | Installs from |
+|----------|----------------------------------|---------------|
+| `stable` | Published releases only          | `main`        |
+| `beta`   | Prereleases as well              | `dev`         |
+
+What is offered and what arrives always come from the same place, so an
+installation can never be told about a version it cannot get.
+
+### Uninstalling
+
+```powershell
+fedupdate uninstall
+```
+
+You are asked what should happen to the update settings FedUpDate applied,
+because they belong to you, not to the installer:
+
+| Outcome                | Settings | Ledger                              |
+|------------------------|----------|-------------------------------------|
+| Restore defaults       | Reverted | Removed                             |
+| Keep settings          | Kept     | Saved to `Documents\FedUpDate-Backups`, so they can be reverted by hand later |
+| Keep settings, purge   | Kept     | Removed. The settings become permanent |
+
+The on-boot guard is removed in every case, so kept settings are no longer
+defended and Windows may revert them later. Unattended:
+
+```powershell
+.\install.ps1 -Uninstall -UninstallMode RestoreDefaults -NonInteractive
+```
+
+---
+
+## 🖥️ Interfaces
+
+The same engine, three ways in. All three share one configuration, one log and
+one state ledger.
+
+### Desktop GUI
 
 ```powershell
 fedupdate gui
 ```
 
-### Launching the Interactive Terminal UI (TUI)
+A native Fluent 2 window: Mica backdrop, custom title bar, a notification
+centre that names what it is talking about, and a docked task drawer streaming
+the engine's log as it runs. Log lines and notification text can be selected
+and copied.
+
+![The dashboard in the dark theme](assets/screenshots/gui-dashboard-dark.png)
+
+![The dashboard in the light theme](assets/screenshots/gui-dashboard-light.png)
+
+### Terminal TUI
 
 ```powershell
 fedupdate tui
@@ -70,36 +133,60 @@ fedupdate tui
 fedupdate
 ```
 
-### Headless CLI Usage
+A keyboard-driven dashboard for the terminal. The status bar carries the same
+three-state reading as the desktop interface: a restart the system is genuinely
+waiting on, routine installer cleanup queued for the next one, or nothing.
 
-```powershell
-# Quick audit of all 3 engines & reboot status
-fedupdate scan
-
-# Simulate update run without touching anything
-fedupdate update -All -WhatIf
-
-# Run full unified update
-fedupdate update -All
-
-# Update only WinGet packages
-fedupdate update -Winget
-
-# Audit anti-tamper update service states
-fedupdate watchdog audit
-
-# Enforce anti-tamper update lock
-fedupdate watchdog enforce
-
-# Revert most recent state change
-fedupdate rollback -Latest
-
-# Schedule daily automated updates at 2:00 AM
-fedupdate schedule set -Frequency Daily -Time "02:00"
-
-# View recent execution logs
-fedupdate logs -Count 50
+```text
+    ______         __  __        ____        __
+   / ____/__  ____/ / / /_  __  / __ \____ _/ /____
+  / /_  / _ \/ __  / / / / / / / / / / __ / __/ _ \
+ / __/ /  __/ /_/ / /_/ /_/ / / /_/ / /_/ / /_/  __/
+/_/    \___/\__,_/  \__,___/ /_____/\__,_/\__/\___/
+--------------------------------------------------------------------------------
+ OS Updates: 0 KBs | WinGet: 2 Apps | Store: Synced | Reboot:  CLEANUP QUEUED  | Guard:  SHIELD ACTIVE
+--------------------------------------------------------------------------------
+MAIN MENU
+ [1] Update All (Executes OS + WinGet + Store + Post-Check)
+ [2] WhatIf Simulation (Simulate an update run without touching the system)
+ [3] Scan & Audit System (Deep check of all 3 engines & reboot flags)
+ [4] Anti-Tamper Watchdog Center (Lock down Windows update auto-hijackers)
+ [5] Rollback & State Ledger (1-Click restore of original OS settings/registry)
+ [6] Task Scheduler Automation (Configure automated background runs)
+ [7] Launch Modern Desktop GUI (Open Fluent 2 Desktop Window)
+ [8] View System Logs (Browse real-time rolling logs)
+ [9] Version & Update (Check for a new release and update in place)
+ [Q] Quit
 ```
+
+### Command Line
+
+Scriptable and pipe-friendly. Every command exits non-zero on failure, and
+`fedupdate check` exits `1` when anything is pending, for use in scripts.
+
+| Command | What it does |
+|---------|--------------|
+| `fedupdate scan` | Audit all three engines, reboot state and the anti-tamper shield |
+| `fedupdate check` | Same audit, exit code only: `0` clean, `1` updates pending |
+| `fedupdate update -All` | Run every engine, enforce the shield, then evaluate the reboot policy |
+| `fedupdate update -OS` / `-Winget` / `-Store` | One engine only |
+| `fedupdate update -All -WhatIf` | Simulate the whole run without touching anything |
+| `fedupdate watchdog audit` / `enforce` | Inspect or re-apply the anti-tamper shield |
+| `fedupdate rollback` | List the state ledger |
+| `fedupdate rollback -Latest` / `-All` / `-TransactionId <id>` | Revert recorded changes |
+| `fedupdate schedule set -Frequency Daily -Time "02:00"` | Register an automated run |
+| `fedupdate schedule remove` | Remove it |
+| `fedupdate logs -Count 50` | Recent log entries |
+| `fedupdate config` | Print the active configuration |
+| `fedupdate version` | Installed version, and whether a newer one is published |
+| `fedupdate self-update` | Update in place |
+| `fedupdate uninstall` | Remove, with the choices described above |
+| `fedupdate help` | This list. `-h`, `--help`, `-?` and `/?` work too |
+
+Restart handling on `update` can be overridden per run with `-RebootPolicy`,
+`-NoReboot`, `-ForceReboot` or `-Shutdown`. A restart is only ever forced for
+something the system is genuinely waiting on, never for routine installer
+cleanup.
 
 ---
 
@@ -118,6 +205,7 @@ FedUpDate/
 │   ├── app/                   # Splash and title bar marks used by the GUI
 │   ├── desktop/               # app.ico for Windows, iconset and hicolor sets
 │   ├── readme/                # Documentation marks
+│   ├── screenshots/           # Interface captures used by this README
 │   └── web/                   # Favicon, touch icon and PWA marks
 ├── core/                      # PowerShell Engine Core
 │   ├── Engine.psm1            # Master module orchestrator
