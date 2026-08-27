@@ -16,7 +16,7 @@ function Show-FedHeader {
   / /_  / _ \/ __  / / / / / / / / / / __ `/ __/ _ \  
  / __/ /  __/ /_/ / /_/ /_/ / / /_/ / /_/ / /_/  __/  
 /_/    \___/\__,_/  \__,___/ /_____/\__,_/\__/\___/   
-    `e[38;2;139;92;246m$verLabel | Unified Windows Update & Anti-Tamper Suite`e[0m
+    `e[38;2;139;92;246mFedUpDate $verLabel | Unified Windows Update & Anti-Tamper Suite`e[0m
 "@
     Write-Host $title
     Write-Host "`e[90m--------------------------------------------------------------------------------`e[0m"

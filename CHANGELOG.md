@@ -5,6 +5,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.13] - 2026-08-28
+
+### Changed
+
+- **The Terminal Banner Names the Application (`tui/TuiEngine.ps1`)**:
+  - The line under the banner read as a version and a tagline with nothing to attach them to. It now reads FedUpDate, the version, then the tagline.
+
+---
+
 ## [1.0.12] - 2026-08-26
 
 ### Fixed
