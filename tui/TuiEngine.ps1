@@ -297,4 +297,8 @@ function Start-FedTUI {
     }
 }
 
-Export-ModuleMember -Function Start-FedTUI -ErrorAction SilentlyContinue
+# No Export-ModuleMember here. This file is dot-sourced straight into the
+# command line script, never imported as a module, and the cmdlet refuses to
+# run anywhere but inside one. It printed an error on every launch of the
+# text interface, and the error action switch does not quiet it because the
+# refusal is a terminating one.

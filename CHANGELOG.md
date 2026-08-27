@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.11] - 2026-08-26
+
+### Fixed
+
+- **The Text Interface Never Launched From the Command Line (`tui/TuiEngine.ps1`)**:
+  - The text interface is loaded by reading its file straight into the command line script. That file ended with a cmdlet that may only run inside a module, and the command line script treats every error as fatal, so loading the interface failed at its last line and the interface itself was never started. This has been so since the first public release. Every function in it was fine; only the way it announced itself was wrong.
+  - The offending line is gone. The file is never imported as a module, so it had nothing to export in the first place.
+
+---
+
 ## [1.0.10] - 2026-08-26
 
 ### Changed
