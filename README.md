@@ -127,29 +127,7 @@ fedupdate tui
 fedupdate
 ```
 
-```text
-    ______         ____  __      ____        __
-   / ____/__  ____/ / / / /___  / __ \____ _/ /____
-  / /_  / _ \/ __  / / / / __ \/ / / / __ `/ __/ _ \
- / __/ /  __/ /_/ / /_/ / /_/ / /_/ / /_/ / /_/  __/
-/_/    \___/\__,_/\____/ .___/_____/\__,_/\__/\___/
-                      /_/
-FedUpDate v1.0.14 | Unified Windows Update & Anti-Tamper Suite
---------------------------------------------------------------------------------
- OS Updates: 0 KBs | WinGet: 2 Apps | Store: Synced | Reboot:  CLEANUP QUEUED  | Guard:  SHIELD ACTIVE
---------------------------------------------------------------------------------
-MAIN MENU
- [1] Update All (Executes OS + WinGet + Store + Post-Check)
- [2] WhatIf Simulation (Simulate an update run without touching the system)
- [3] Scan & Audit System (Deep check of all 3 engines & reboot flags)
- [4] Anti-Tamper Watchdog Center (Lock down Windows update auto-hijackers)
- [5] Rollback & State Ledger (1-Click restore of original OS settings/registry)
- [6] Task Scheduler Automation (Configure automated background runs)
- [7] Launch Modern Desktop GUI (Open Fluent 2 Desktop Window)
- [8] View System Logs (Browse real-time rolling logs)
- [9] Version & Update (Check for a new release and update in place)
- [Q] Quit
-```
+![The TUI main menu in the dark theme](assets/screenshots/tui-mainmenu-dark.png)
 
 ### Command Line
 
