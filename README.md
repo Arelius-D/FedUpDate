@@ -5,6 +5,8 @@
   <p><em>"Because Microsoft needs three separate corporate divisions and zero communication to update one operating system."</em></p>
 </div>
 
+[![Release](https://img.shields.io/github/v/release/Arelius-D/FedUpDate?color=%235391FE&label=release)](https://github.com/Arelius-D/FedUpDate/releases) [![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-gold.svg)](LICENSE) [![Platform](https://img.shields.io/badge/Platform-Windows_11-%230078D4.svg)](#) [![Built with](https://img.shields.io/badge/Built_with-PowerShell_%2B_C%23-%235391FE.svg)](#) [![Interfaces](https://img.shields.io/badge/Interfaces-GUI_%7C_TUI_%7C_CLI-emerald.svg)](#interfaces) [![No binaries](https://img.shields.io/badge/Binaries-none_shipped-brightgreen.svg)](#installation-zero-external-dependencies)
+
 An ultra-lightweight, transparent, and modern Windows 11 update management suite. It unifies Windows' fragmented update engines into a single, cohesive command center while protecting user control through an active Anti-Tamper State Watchdog and a true 1-Click Rollback Engine.
 
 ---
