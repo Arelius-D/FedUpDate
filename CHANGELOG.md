@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.22] - 2026-09-04
+
+### Fixed
+
+- **Navigation Icons Were Drawn At Noticeably Different Sizes (`gui/index.html`)**:
+  - Every icon in the navigation rail is given an identical box, so they were expected to match. They did not. An icon looks the size its drawing is, not the size its box is, and the drawings occupied anywhere between seventy and one hundred percent of the space allotted to them. The Windows and Store marks reached the edges of their frames with no margin at all, while the dashboard and log marks sat well inside theirs, leaving the largest rendering forty three percent bigger than the smallest in a row where all ten are meant to read as one set.
+  - Two causes sat behind it. The Windows and Store marks were drawn on a twenty four unit grid while the other eight use twenty, and nothing required one grid over the other. More significantly, those two were drawn edge to edge, whereas the rest carry the margin their icon set is designed with.
+  - Each icon's frame is now padded so that all ten carry the same share of their box. No artwork was altered and no colour was touched, only the frame the existing drawing sits in. The difference in rendered size between the largest and the smallest is now nothing.
+
+---
+
 ## [1.0.21] - 2026-09-04
 
 ### Fixed
