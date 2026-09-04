@@ -154,6 +154,72 @@ function Invoke-FedWithUpdateService {
     }
 }
 
+function Get-FedOSScanCacheFile {
+    return Join-Path (Get-FedDataDirectory) "os_scan_cache.json"
+}
+
+function Save-FedOSScanCache {
+    <#
+    .SYNOPSIS
+        Records the result of a scan that was actually allowed to run.
+    .DESCRIPTION
+        The session able to run a scan is not always the session that needs the
+        answer. The elevated check runs in its own process and exits, so unless
+        its result is written down it dies with that process and the window that
+        asked for it is no better informed than before it asked.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [array]$Updates
+    )
+
+    try {
+        $payload = [PSCustomObject]@{
+            CheckedAt = (Get-Date).ToString("o")
+            Count     = [int]@($Updates).Count
+            Updates   = @($Updates)
+        }
+        $payload | ConvertTo-Json -Depth 6 | Set-Content -Path (Get-FedOSScanCacheFile) -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-FedLog "Could not record the Windows Update scan result: $_" -Level "WARN" -Component "OSUpdate"
+    }
+}
+
+function Get-FedOSScanCache {
+    <#
+    .SYNOPSIS
+        The last scan that ran, or nothing if none ever has.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $file = Get-FedOSScanCacheFile
+    if (-not (Test-Path $file)) { return $null }
+
+    try {
+        $raw = Get-Content -Path $file -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        $data = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $data -or $null -eq $data.CheckedAt) { return $null }
+        return $data
+    } catch {
+        return $null
+    }
+}
+
+function Clear-FedOSScanCache {
+    <#
+    .SYNOPSIS
+        Discards the recorded scan once it can no longer be true.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $file = Get-FedOSScanCacheFile
+    if (Test-Path $file) { Remove-Item -Path $file -Force -ErrorAction SilentlyContinue }
+}
+
 function Get-FedOSUpdates {
     [CmdletBinding()]
     param(
@@ -167,6 +233,8 @@ function Get-FedOSUpdates {
     Write-FedLog "Scanning for Windows Operating System updates..." -Level "INFO" -Component "OSUpdate"
     $script:FedOSScanBlocked = $false
     $script:FedOSScanReason = $null
+    $script:FedOSScanCached = $false
+    $script:FedOSScanCheckedAt = $null
     $results = [System.Collections.Generic.List[PSObject]]::new()
 
     try {
@@ -230,6 +298,21 @@ function Get-FedOSUpdates {
         }
     } catch {
         Write-FedLog "Failed to query Windows Update COM API: $_" -Level "WARN" -Component "OSUpdate"
+    }
+
+    if ($script:FedOSScanBlocked) {
+        # Refused here does not mean unknown everywhere. An elevated check may
+        # already have answered this, and that answer is better than reporting
+        # nothing at all, so long as it is reported as what it is and dated.
+        $cached = Get-FedOSScanCache
+        if ($null -ne $cached) {
+            foreach ($up in @($cached.Updates)) { $results.Add($up) }
+            $script:FedOSScanCached = $true
+            $script:FedOSScanCheckedAt = [string]$cached.CheckedAt
+            Write-FedLog "Reporting the last elevated check, taken $($cached.CheckedAt), because this session may not run one." -Level "INFO" -Component "OSUpdate"
+        }
+    } else {
+        Save-FedOSScanCache -Updates @($results)
     }
 
     return @($results)
@@ -410,6 +493,8 @@ function Install-FedOSUpdates {
         }
 
         Write-FedLog "Windows Update installation finished. Installed: $($outcome.Count), RebootRequired: $($outcome.RebootRequired), ResultCode: $($outcome.ResultCode)" -Level "SUCCESS" -Component "OSUpdate"
+        # What was pending before the install cannot still be pending after it.
+        Clear-FedOSScanCache
         return [PSCustomObject]@{
             SuccessCount   = $outcome.Count
             FailCount      = 0
@@ -434,9 +519,11 @@ function Get-FedOSScanState {
     param()
 
     return [PSCustomObject]@{
-        Blocked  = [bool]$script:FedOSScanBlocked
-        Reason   = $script:FedOSScanReason
-        CanRetry = [bool]$script:FedOSScanBlocked
+        Blocked   = [bool]$script:FedOSScanBlocked
+        Reason    = $script:FedOSScanReason
+        CanRetry  = [bool]$script:FedOSScanBlocked
+        Cached    = [bool]$script:FedOSScanCached
+        CheckedAt = $script:FedOSScanCheckedAt
     }
 }
 

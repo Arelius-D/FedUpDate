@@ -660,7 +660,7 @@ function updateDashboardUI() {
   if (!state.scanData) return;
 
   const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted,
-          OSScanBlocked, OSScanReason } = state.scanData;
+          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
 
   // The badges carry state, not identity: green when there is nothing to do,
   // and one shared colour when there is. Three different colours were used to
@@ -672,7 +672,14 @@ function updateDashboardUI() {
   if (osEl) {
     // A refused scan has no count. Showing 0 would state a measurement that was
     // never taken, so it says what happened and offers the way to get one.
-    if (OSScanBlocked) {
+    if (OSScanBlocked && OSScanCached) {
+      // This session could not check, but an elevated one already did, and its
+      // answer outlived the process that produced it. Reporting that answer with
+      // its age beats reporting nothing on a question already answered.
+      osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
+      osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
+      osEl.title = `Checked ${fedRelativeTime(OSScanCheckedAt)}. This window cannot check on its own while the shield is on.`;
+    } else if (OSScanBlocked) {
       osEl.textContent = 'Not checked';
       osEl.className = 'badge-pill badge-recommended';
       osEl.title = OSScanReason || 'The Windows Update service is disabled by the shield.';
@@ -717,7 +724,7 @@ function updateNotificationsUI() {
 
   const items = [];
   const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted,
-          OSScanBlocked, OSScanReason } = state.scanData;
+          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
 
   if (WatchdogDrifted) {
     items.push({
@@ -773,7 +780,7 @@ function updateNotificationsUI() {
     });
   }
 
-  if (OSScanBlocked) {
+  if (OSScanBlocked && !OSScanCached) {
     items.push({
       id: 'os-scan-blocked',
       type: 'warn',
@@ -786,7 +793,7 @@ function updateNotificationsUI() {
     });
   }
 
-  if (!OSScanBlocked && (OSUpdateCount || 0) > 0) {
+  if ((!OSScanBlocked || OSScanCached) && (OSUpdateCount || 0) > 0) {
     items.push({
       id: 'os-updates',
       type: 'warn',
@@ -919,7 +926,7 @@ function renderOSUpdatesTable() {
   // found nothing. Declaring the system up to date on the strength of a check
   // that never happened is the one thing this table must never do, so the
   // refusal is reported as itself, with the way to resolve it.
-  if (state.scanData && state.scanData.OSScanBlocked) {
+  if (state.scanData && state.scanData.OSScanBlocked && !state.scanData.OSScanCached) {
     const reason = state.scanData.OSScanReason
       || 'The Windows Update service is disabled by the anti-tamper shield.';
     tbody.innerHTML = `
@@ -935,8 +942,12 @@ function renderOSUpdatesTable() {
   }
 
   const osUpdates = (state.scanData && Array.isArray(state.scanData.OSUpdates)) ? state.scanData.OSUpdates : [];
+  const cachedNote = (state.scanData && state.scanData.OSScanBlocked && state.scanData.OSScanCached)
+    ? `<tr class="placeholder-row"><td colspan="6">Checked ${escapeHtml(fedRelativeTime(state.scanData.OSScanCheckedAt))}, with elevation. This window cannot check on its own while the shield is on. <button class="btn btn-secondary btn-sm" onclick="runElevatedOSScan()">Check again</button></td></tr>`
+    : '';
+
   if (osUpdates.length === 0) {
-    tbody.innerHTML = `
+    tbody.innerHTML = cachedNote + `
       <tr class="placeholder-row">
         <td colspan="6">Windows is fully up-to-date! No pending OS or Defender updates.</td>
       </tr>
@@ -944,7 +955,7 @@ function renderOSUpdatesTable() {
     return;
   }
 
-  tbody.innerHTML = osUpdates.map(u => `
+  tbody.innerHTML = cachedNote + osUpdates.map(u => `
     <tr>
       <td style="font-weight: 600;">${escapeHtml(u.Title || 'Windows Update')}</td>
       <td><span class="badge-pill badge-info">${escapeHtml(u.KB || 'KB-Cumulative')}</span></td>
@@ -1551,6 +1562,24 @@ async function runSelfUpdate() {
 }
 
 // Helper: Escape HTML
+// A recovered result is only worth showing if it is dated, because the value of
+// "3 pending" depends entirely on whether that was measured a minute or a month
+// ago, and this window cannot take a fresh measurement on its own.
+function fedRelativeTime(iso) {
+  if (!iso) return 'earlier';
+  const then = new Date(iso);
+  if (isNaN(then.getTime())) return 'earlier';
+  const mins = Math.floor((Date.now() - then.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins === 1) return '1 minute ago';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs === 1) return '1 hour ago';
+  if (hrs < 24) return `${hrs} hours ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)

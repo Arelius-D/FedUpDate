@@ -46,7 +46,7 @@ function Show-FedStatusBar {
     } else {
         # A blocked scan has no number to show, so it says so rather than
         # borrowing the one that means "nothing pending".
-        $osCount = if ($ScanResult.OSScanBlocked) { "not checked" } else { "$($ScanResult.OSUpdateCount) KBs" }
+        $osCount = if ($ScanResult.OSScanBlocked -and -not $ScanResult.OSScanCached) { "not checked" } else { "$($ScanResult.OSUpdateCount) KBs" }
         $wgCount = $ScanResult.WingetUpdateCount
         $rebootBadge = Get-FedRebootBadge -Severity $ScanResult.RebootSeverity
         $guardBadge = if ($ScanResult.WatchdogDrifted) { "`e[43;30m DRIFT DETECTED `e[0m" } else { "`e[42;30m SHIELD ACTIVE `e[0m" }
@@ -120,7 +120,9 @@ function Start-FedTUI {
                 $lastScan = Start-FedScan
                 
                 Write-Host "`n`e[1;37m--- OS Updates Pending ---`e[0m"
-                if ($lastScan.OSScanBlocked) {
+                if ($lastScan.OSScanBlocked -and $lastScan.OSScanCached) {
+                    Write-Host " `e[90mChecked $(Get-FedFriendlyAge -Iso $lastScan.OSScanCheckedAt), with elevation. This session cannot check on its own while the shield is on.`e[0m"
+                } elseif ($lastScan.OSScanBlocked) {
                     Write-Host " `e[93mNot checked.`e[0m $($lastScan.OSScanReason)"
                     Write-Host " `e[90mRun the text interface from an elevated session to check. The shield is restored afterwards.`e[0m"
                 }

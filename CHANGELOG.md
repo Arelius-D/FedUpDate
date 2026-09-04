@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.16] - 2026-09-04
+
+### Fixed
+
+- **The Elevated Windows Update Check Threw Its Own Answer Away (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`, `core/Logger.ps1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`)**:
+  - Checking for Windows updates is refused while the shield has the update service disabled, unless the session is elevated, and no interface runs elevated. The way out was to accept an elevation prompt, which started a second process, checked properly, printed to a hidden console and exited. Only its exit code came back. The result itself went nowhere. The interface then ran another check in its own unelevated session, was refused exactly as before, and reported that Windows updates had not been checked. Accepting the prompt changed nothing that could be seen, so the check appeared to do nothing at all, every time, no matter how often it was accepted.
+  - A check that runs is now written down, with the time it was taken. A session that is refused reads what the last successful check found instead of reporting nothing, and says when it was taken and that it came from an elevated check. The elevated prompt therefore produces a visible answer, which is the whole reason it is offered.
+  - A count is never presented as current when it is not. Every interface that shows a carried over result shows its age beside it, and installing updates discards the record, because what was pending before an install cannot still be pending after it.
+  - The distinction between a check that found nothing and a check that never ran is preserved. With nothing recorded, a refused check still reports that it was not checked rather than inventing a zero.
+
+- **The Command Line And Text Interface Reported Nothing When An Answer Existed (`fedupdate.ps1`, `tui/TuiEngine.ps1`)**:
+  - Both read only whether the current session had been refused, so both printed that Windows updates were not checked even when a successful elevated check had already answered the question minutes earlier. They now report the count and when it was taken, and fall back to not checked only when nothing has ever been recorded.
+
+---
+
 ## [1.0.15] - 2026-08-28
 
 ### Fixed

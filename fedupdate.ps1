@@ -135,7 +135,13 @@ switch ($Command.ToLower()) {
     "scan" {
         $result = Start-FedScan
         Write-Host "`n`e[1;36m=== FEDUPDATE SCAN SUMMARY ===`e[0m"
-        if ($result.OSScanBlocked) {
+        if ($result.OSScanBlocked -and $result.OSScanCached) {
+            # This session could not look, but an elevated one already did and
+            # wrote down what it saw. That is a real measurement, so it is shown
+            # with the time it was taken rather than withheld.
+            Write-Host "OS Updates Pending:          $($result.OSUpdateCount)"
+            Write-Host "  Checked $(Get-FedFriendlyAge -Iso $result.OSScanCheckedAt), with elevation. This session cannot check on its own while the shield is on."
+        } elseif ($result.OSScanBlocked) {
             # Not a count. Saying 0 here would be inventing a measurement that
             # was never taken.
             Write-Host "OS Updates Pending:          not checked"

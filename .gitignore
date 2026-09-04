@@ -9,6 +9,7 @@ data/browser_profile/
 data/gui_profile/
 data/webview_data/
 data/last_scan.json
+data/os_scan_cache.json
 data/state_ledger.json
 *.log
 *.bak

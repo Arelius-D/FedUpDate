@@ -132,3 +132,38 @@ function Clear-FedLogs {
 }
 
 Export-ModuleMember -Function Write-FedLog, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory -ErrorAction SilentlyContinue
+
+function Get-FedFriendlyAge {
+    <#
+    .SYNOPSIS
+        How long ago a recorded moment was, in plain words.
+    .DESCRIPTION
+        A count carried over from an earlier check is only meaningful alongside
+        its age, since "three pending" means different things a minute and a
+        month later. An unreadable or missing timestamp says so rather than
+        guessing at a number.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Iso
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Iso)) { return "earlier" }
+
+    $when = [datetime]::MinValue
+    if (-not [datetime]::TryParse($Iso, [ref]$when)) { return "earlier" }
+
+    $mins = [int][math]::Floor(((Get-Date) - $when).TotalMinutes)
+    if ($mins -lt 1) { return "just now" }
+    if ($mins -eq 1) { return "1 minute ago" }
+    if ($mins -lt 60) { return "$mins minutes ago" }
+
+    $hours = [int][math]::Floor($mins / 60)
+    if ($hours -eq 1) { return "1 hour ago" }
+    if ($hours -lt 24) { return "$hours hours ago" }
+
+    $days = [int][math]::Floor($hours / 24)
+    if ($days -eq 1) { return "yesterday" }
+    return "$days days ago"
+}
