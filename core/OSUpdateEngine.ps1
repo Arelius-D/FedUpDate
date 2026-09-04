@@ -320,6 +320,7 @@ function Get-FedOSUpdates {
     $script:FedOSScanReason = $null
     $script:FedOSScanCached = $false
     $script:FedOSScanCheckedAt = $null
+    $script:FedOSScanTimedOut = $false
     $results = [System.Collections.Generic.List[PSObject]]::new()
 
     try {
@@ -361,8 +362,13 @@ function Get-FedOSUpdates {
         # The service stays borrowed until the search has finished and been
         # collected. Restoring it any earlier would pull it out from under the
         # running job, which is what an unelevated scan reporting zero looks like.
+        # Reading the local catalogue is quick. Asking Windows Update is a network
+        # call that routinely takes a minute or more, and holding it to the same
+        # half minute meant it was usually being cut off rather than answered.
+        $searchTimeout = if ($onlineFlag) { 300 } else { 45 }
+
         Invoke-FedWithUpdateService -Action {
-            if ($searchJob | Wait-Job -Timeout 30) {
+            if ($searchJob | Wait-Job -Timeout $searchTimeout) {
                 $updates = Receive-Job -Job $searchJob
                 if ($updates) {
                     foreach ($up in $updates) {
@@ -370,13 +376,22 @@ function Get-FedOSUpdates {
                     }
                 }
             } else {
-                Write-FedLog "Windows Update search timed out. Returned local state." -Level "WARN" -Component "OSUpdate"
+                # A search that did not finish has measured nothing. This used to
+                # fall back to whatever was already known and report that as the
+                # answer, so a cut off search came back as a confident count, and
+                # a count of zero from a search that never ran reads as though
+                # everything is up to date.
+                $script:FedOSScanTimedOut = $true
+                $script:FedOSScanReason = "The Windows Update search did not finish within $searchTimeout seconds, so nothing was measured."
+                Write-FedLog "Windows Update search did not finish within $searchTimeout seconds. Nothing was measured, so no count is being reported." -Level "WARN" -Component "OSUpdate"
                 Stop-Job -Job $searchJob -ErrorAction SilentlyContinue
             }
         } | Out-Null
         Remove-Job -Job $searchJob -Force -ErrorAction SilentlyContinue
 
         if ($script:FedOSScanBlocked) {
+            Write-FedLog "Windows updates were not checked. $($script:FedOSScanReason)" -Level "WARN" -Component "OSUpdate"
+        } elseif ($script:FedOSScanTimedOut) {
             Write-FedLog "Windows updates were not checked. $($script:FedOSScanReason)" -Level "WARN" -Component "OSUpdate"
         } else {
             Write-FedLog "Found $($results.Count) pending Windows Update(s)." -Level "SUCCESS" -Component "OSUpdate"
@@ -385,7 +400,19 @@ function Get-FedOSUpdates {
         Write-FedLog "Failed to query Windows Update COM API: $_" -Level "WARN" -Component "OSUpdate"
     }
 
-    if ($script:FedOSScanBlocked) {
+    if ($script:FedOSScanTimedOut) {
+        # Nothing was measured, so nothing is recorded. Overwriting a real
+        # earlier answer with the empty result of a search that never finished
+        # would lose the only measurement there was.
+        $earlier = Get-FedOSScanCache
+        if ($null -ne $earlier) {
+            $results.Clear()
+            foreach ($up in @($earlier.Updates)) { $results.Add($up) }
+            $script:FedOSScanCached = $true
+            $script:FedOSScanCheckedAt = [string]$earlier.CheckedAt
+            Write-FedLog "Reporting the last check that did finish, taken $($earlier.CheckedAt)." -Level "INFO" -Component "OSUpdate"
+        }
+    } elseif ($script:FedOSScanBlocked) {
         # Refused here does not mean unknown everywhere. An elevated check may
         # already have answered this, and that answer is better than reporting
         # nothing at all, so long as it is reported as what it is and dated.
@@ -686,6 +713,14 @@ function Install-FedOSUpdates {
             # strength of the same stale entry. Only a fresh answer from Windows
             # settles whether something is still pending.
             $stillPending = @(Get-FedOSUpdates -IncludeDefender:$false -Online)
+            $recheckState = Get-FedOSScanState
+            if ($recheckState.TimedOut -or $recheckState.Blocked) {
+                # An empty answer from a search that never finished would read as
+                # every update having installed, which is the same false success
+                # this whole path exists to stop.
+                $recheckFailed = $true
+                Write-FedLog "The check after installing did not complete, so what installed cannot be confirmed." -Level "WARN" -Component "OSUpdate"
+            }
         } catch {
             $recheckFailed = $true
             Write-FedLog "Could not re-check Windows updates after installing, so what installed cannot be confirmed: $_" -Level "WARN" -Component "OSUpdate"
@@ -757,11 +792,12 @@ function Get-FedOSScanState {
     param()
 
     return [PSCustomObject]@{
-        Blocked   = [bool]$script:FedOSScanBlocked
+        Blocked   = [bool]($script:FedOSScanBlocked -or $script:FedOSScanTimedOut)
         Reason    = $script:FedOSScanReason
-        CanRetry  = [bool]$script:FedOSScanBlocked
+        CanRetry  = [bool]($script:FedOSScanBlocked -or $script:FedOSScanTimedOut)
         Cached    = [bool]$script:FedOSScanCached
         CheckedAt = $script:FedOSScanCheckedAt
+        TimedOut  = [bool]$script:FedOSScanTimedOut
     }
 }
 

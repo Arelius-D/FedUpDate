@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.21] - 2026-09-04
+
+### Fixed
+
+- **A Windows Update Search That Never Finished Was Reported As A Result (`core/OSUpdateEngine.ps1`)**:
+  - The search was given thirty seconds. Reading Windows' local update catalogue takes moments, but asking Windows Update itself is a network call that routinely takes longer than that, so the online search was frequently being cut off rather than answered. When it was cut off, whatever was already known locally was returned in its place and reported as the finding, so a search that measured nothing came back as a confident count. A count of zero produced that way is indistinguishable from a system with nothing outstanding.
+  - This mattered more than it reads, because the check that decides what an installation achieved is that same online search. Cut off, it would have returned nothing outstanding and every update would have been reported as installed, which is the false success the check exists to prevent.
+  - A search now gets the time the kind of search needs, and one that does not finish is reported as not having finished. Nothing is presented as measured, an earlier answer that did finish is kept rather than being overwritten by an empty one, and an installation whose check did not complete is reported as unconfirmed rather than as done.
+
+---
+
 ## [1.0.20] - 2026-09-04
 
 ### Fixed
