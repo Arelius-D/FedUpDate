@@ -5,6 +5,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.19] - 2026-09-04
+
+### Fixed
+
+- **Finishing An Update Run Left The Windows Update Card Saying Nothing Had Been Checked (`core/OSUpdateEngine.ps1`)**:
+  - A run that installed Windows updates ended by discarding what it knew was pending, on the grounds that installing had just made it untrue. Nothing replaced it. The check that follows a run is not elevated, the shield refuses it, and with the previous answer thrown away there was nothing left to fall back on, so the card went back to reporting that Windows updates had not been checked at all. The two engines beside it reported their real state, because neither of them needs elevation to look.
+  - The run now asks once more before it finishes, while it still holds the elevation it needed to install, and records that answer. A completed run leaves the state it produced rather than leaving nothing, so the card reports what is actually pending afterwards instead of admitting ignorance the moment the work is done.
+
+- **Updates That Had Installed Were Reported As Not Installed (`core/OSUpdateEngine.ps1`)**:
+  - Each update's outcome was taken from the number the Update Agent reports against it. That number is not evidence. A driver update that Windows had installed came back marked as never started, so the run named it as not installed while Windows' own update screen had already stopped listing it. Trusting that number replaced one false report with another in the opposite direction.
+  - What installed is now settled by looking. The run checks again once the installation is finished, and an update that is no longer pending installed, whatever the Agent said about it. One that is still pending did not, and is named along with what the Agent claimed, since the two disagreeing is worth seeing. If the re-check itself cannot run, nothing is presented as confirmed either way.
+
+### Changed
+
+- **Update Outcomes Are Reported In Words (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`)**:
+  - An update that did not install was logged with the Update Agent's numeric outcome, which tells nobody anything. The distinction matters: an update Windows declined to start is a different situation from one it tried and could not complete, and only one of those is worth trying again. Each outcome is now named, and an unrecognised one still reports its number rather than being hidden.
+
+---
+
 ## [1.0.18] - 2026-09-04
 
 ### Fixed

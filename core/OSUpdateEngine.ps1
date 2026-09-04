@@ -208,6 +208,32 @@ function Get-FedOSScanCache {
     }
 }
 
+function Get-FedUpdateResultText {
+    <#
+    .SYNOPSIS
+        What the Update Agent's numeric outcome actually means.
+    .DESCRIPTION
+        A bare number tells nobody anything, and the difference between them
+        matters: an update Windows declined to start is a different situation
+        from one it tried and failed, and only the first is worth retrying.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [int]$Code
+    )
+
+    switch ($Code) {
+        0 { return "Windows did not start it" }
+        1 { return "still in progress" }
+        2 { return "succeeded" }
+        3 { return "succeeded with errors" }
+        4 { return "failed" }
+        5 { return "cancelled" }
+        default { return "unknown outcome $Code" }
+    }
+}
+
 function Get-FedOSInstallResultFile {
     return Join-Path (Get-FedDataDirectory) "os_install_result.json"
 }
@@ -577,6 +603,7 @@ function Install-FedOSUpdates {
                     $item = $collection.Item($i)
                     $cats = @($item.Categories | ForEach-Object { $_.Name })
                     $detail += [PSCustomObject]@{
+                        Id         = $item.Identity.UpdateID
                         Title      = $item.Title
                         IsDriver   = ($cats -contains "Drivers")
                         ResultCode = $code
@@ -633,25 +660,64 @@ function Install-FedOSUpdates {
             return $failedResult
         }
 
+        # What was pending before the install cannot still be pending after it,
+        # so the old record has to go. Discarding it and leaving nothing in its
+        # place left every unelevated session with no answer at all, which is
+        # why the card reported that nothing had been checked the moment a run
+        # finished. This session is elevated and can still ask, so it asks once
+        # more and records the answer on its way out.
+        #
+        # That answer is also the only trustworthy account of what installed.
+        # The Update Agent's own per item outcome is not evidence: it reported a
+        # driver as never started that Windows had in fact installed, which the
+        # system's own update screen then contradicted. Whether an update is
+        # still pending afterwards is checkable and cannot disagree with what
+        # the rest of Windows shows, so that is what decides.
+        Clear-FedOSScanCache
+        $stillPending = @()
+        $recheckFailed = $false
+        try {
+            $stillPending = @(Get-FedOSUpdates -IncludeDefender:$false)
+        } catch {
+            $recheckFailed = $true
+            Write-FedLog "Could not re-check Windows updates after installing, so what installed cannot be confirmed: $_" -Level "WARN" -Component "OSUpdate"
+        }
+        $pendingIds = @($stillPending | ForEach-Object { [string]$_.Id })
+
+        $installedCount = 0
+        $remainingCount = 0
         foreach ($d in @($outcome.Detail)) {
-            if ($d.ResultCode -eq 2 -or $d.ResultCode -eq 3) {
-                Write-FedLog "Installed: $($d.Title)" -Level "SUCCESS" -Component "OSUpdate"
-            } else {
+            if ($recheckFailed) {
+                # Without a re-check there is nothing better than the agent's own
+                # word, and it is reported as the uncertain thing it is.
+                $why = Get-FedUpdateResultText -Code ([int]$d.ResultCode)
+                Write-FedLog "Unconfirmed ($why, and the state could not be re-checked): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+                continue
+            }
+            if ($pendingIds -contains [string]$d.Id) {
+                $remainingCount++
                 $kind = if ($d.IsDriver) { "driver update" } else { "update" }
-                Write-FedLog "Not installed ($kind, Windows result code $($d.ResultCode)): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+                $why = Get-FedUpdateResultText -Code ([int]$d.ResultCode)
+                Write-FedLog "Still pending after the run ($kind, the Update Agent reported: $why): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+            } else {
+                $installedCount++
+                Write-FedLog "Installed: $($d.Title)" -Level "SUCCESS" -Component "OSUpdate"
             }
         }
         foreach ($m in @($outcome.Missing)) {
             Write-FedLog "Requested update was not offered back by the Update Agent, so it could not be installed: $m" -Level "WARN" -Component "OSUpdate"
         }
 
-        $level = if ([int]$outcome.Failed -gt 0 -or @($outcome.Missing).Count -gt 0) { "WARN" } else { "SUCCESS" }
-        Write-FedLog "Windows Update installation finished. Installed $($outcome.Count) of $($outcome.Attempted) attempted, RebootRequired: $($outcome.RebootRequired), ResultCode: $($outcome.ResultCode)" -Level $level -Component "OSUpdate"
-        # What was pending before the install cannot still be pending after it.
-        Clear-FedOSScanCache
+        if ($recheckFailed) {
+            $installedCount = [int]$outcome.Count
+            $remainingCount = [int]$outcome.Failed
+        }
+
+        $level = if ($remainingCount -gt 0 -or @($outcome.Missing).Count -gt 0) { "WARN" } else { "SUCCESS" }
+        Write-FedLog "Windows Update installation finished. Installed $installedCount of $($outcome.Attempted) attempted, $remainingCount still pending, RebootRequired: $($outcome.RebootRequired)" -Level $level -Component "OSUpdate"
         $finalResult = [PSCustomObject]@{
-            SuccessCount   = $outcome.Count
-            FailCount      = ([int]$outcome.Failed + @($outcome.Missing).Count)
+            SuccessCount   = $installedCount
+            FailCount      = ($remainingCount + @($outcome.Missing).Count)
             RebootRequired = $outcome.RebootRequired
             ResultCode     = $outcome.ResultCode
         }
