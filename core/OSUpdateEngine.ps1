@@ -208,6 +208,65 @@ function Get-FedOSScanCache {
     }
 }
 
+function Get-FedOSInstallResultFile {
+    return Join-Path (Get-FedDataDirectory) "os_install_result.json"
+}
+
+function Save-FedOSInstallResult {
+    <#
+    .SYNOPSIS
+        Records what an installation actually did.
+    .DESCRIPTION
+        Installing needs elevation, so an unelevated run hands the work to a
+        second process. That process exits, and an exit code says only that it
+        ran, not what it achieved. Without this the caller has to guess, and
+        guessing reported every update as installed by a run that installed
+        none of them.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Result
+    )
+
+    try {
+        $Result | ConvertTo-Json -Depth 6 | Set-Content -Path (Get-FedOSInstallResultFile) -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-FedLog "Could not record the installation result: $_" -Level "WARN" -Component "OSUpdate"
+    }
+}
+
+function Get-FedOSInstallResult {
+    <#
+    .SYNOPSIS
+        What the last recorded installation did, or nothing if none has run.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $file = Get-FedOSInstallResultFile
+    if (-not (Test-Path $file)) { return $null }
+    try {
+        $raw = Get-Content -Path $file -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+}
+
+function Clear-FedOSInstallResult {
+    <#
+    .SYNOPSIS
+        Discards the recorded installation so a stale one is never read as new.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $file = Get-FedOSInstallResultFile
+    if (Test-Path $file) { Remove-Item -Path $file -Force -ErrorAction SilentlyContinue }
+}
+
 function Clear-FedOSScanCache {
     <#
     .SYNOPSIS
@@ -391,14 +450,40 @@ function Install-FedOSUpdates {
         try {
             $scriptRoot = Split-Path -Parent $PSScriptRoot
             $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+            # A stale record from an earlier run must never be read as this one.
+            Clear-FedOSInstallResult
             $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" update -OS" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
             if ($null -ne $p -and $p.ExitCode -eq 0) {
-                Write-FedLog "Elevated Windows Update installation completed successfully." -Level "SUCCESS" -Component "OSUpdate"
+                # An exit code says the process ran, not what it achieved. This
+                # used to report every requested update as installed on the
+                # strength of a zero exit, which is how a run that installed
+                # nothing was reported as a complete success.
+                $childResult = Get-FedOSInstallResult
                 $rebootState = Get-FedRebootState
+
+                if ($null -eq $childResult) {
+                    Write-FedLog "The elevated run finished without recording what it did, so nothing can be reported as installed." -Level "WARN" -Component "OSUpdate"
+                    return [PSCustomObject]@{
+                        SuccessCount   = 0
+                        FailCount      = $UpdatesToInstall.Count
+                        RebootRequired = [bool]$rebootState.IsRebootRequired
+                        Error          = "The elevated run recorded no result"
+                    }
+                }
+
+                $installed = [int]$childResult.SuccessCount
+                $failed = [int]$childResult.FailCount
+                if ($failed -gt 0 -or $installed -eq 0) {
+                    Write-FedLog "The elevated run installed $installed update(s) and did not install $failed. $($childResult.Error)" -Level "WARN" -Component "OSUpdate"
+                } else {
+                    Write-FedLog "Elevated Windows Update installation completed. Installed $installed update(s)." -Level "SUCCESS" -Component "OSUpdate"
+                }
+
                 return [PSCustomObject]@{
-                    SuccessCount   = $UpdatesToInstall.Count
-                    FailCount      = 0
+                    SuccessCount   = $installed
+                    FailCount      = $failed
                     RebootRequired = [bool]$rebootState.IsRebootRequired
+                    Error          = $childResult.Error
                 }
             }
             Write-FedLog "Elevated Windows Update installation did not complete (exit code $($p.ExitCode))." -Level "WARN" -Component "OSUpdate"
@@ -434,18 +519,39 @@ function Install-FedOSUpdates {
     # service stays available for the entire operation.
     return Invoke-FedWithUpdateService -Action {
         $installJob = Start-Job -ScriptBlock {
+            param([string[]]$TargetIds)
             try {
                 $session = New-Object -ComObject Microsoft.Update.Session
                 $searcher = $session.CreateUpdateSearcher()
+                # The same search the scan ran. Both settings used to be left at
+                # their defaults here, which asks Windows a different question:
+                # the scan reads the local catalogue and this went to the network.
+                # The two then disagreed about what was pending, so the list a
+                # person was looking at was not the list being installed.
+                $searcher.ServerSelection = 0
+                $searcher.Online = $false
                 $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0")
 
                 $collection = New-Object -ComObject Microsoft.Update.UpdateColl
+                $missing = @()
+                $seen = @()
                 if ($null -ne $searchResult -and $null -ne $searchResult.Updates) {
-                    foreach ($update in $searchResult.Updates) { $collection.Add($update) | Out-Null }
+                    foreach ($update in $searchResult.Updates) {
+                        $id = $update.Identity.UpdateID
+                        $seen += $id
+                        if ($TargetIds.Count -gt 0 -and $TargetIds -notcontains $id) { continue }
+                        # An unaccepted licence stops that update downloading, and
+                        # driver updates are the ones that usually carry one.
+                        if (-not $update.EulaAccepted) {
+                            try { $update.AcceptEula() } catch { }
+                        }
+                        $collection.Add($update) | Out-Null
+                    }
                 }
+                foreach ($want in $TargetIds) { if ($seen -notcontains $want) { $missing += $want } }
 
                 if ($collection.Count -eq 0) {
-                    return [PSCustomObject]@{ Stage = "search"; Count = 0; RebootRequired = $false }
+                    return [PSCustomObject]@{ Stage = "search"; Count = 0; Requested = $TargetIds.Count; Missing = $missing; RebootRequired = $false }
                 }
 
                 $downloader = $session.CreateUpdateDownloader()
@@ -457,9 +563,33 @@ function Install-FedOSUpdates {
                 $installer.ForceQuiet = $true
                 $installResult = $installer.Install()
 
+                # How many were attempted is not how many were installed. Each
+                # update carries its own outcome and only these two codes mean it
+                # went on. Counting the collection reported every attempt as a
+                # success, including the ones Windows refused.
+                $succeeded = 0
+                $failed = 0
+                $detail = @()
+                for ($i = 0; $i -lt $collection.Count; $i++) {
+                    $code = 4
+                    try { $code = $installResult.GetUpdateResult($i).ResultCode } catch { $code = 4 }
+                    if ($code -eq 2 -or $code -eq 3) { $succeeded++ } else { $failed++ }
+                    $item = $collection.Item($i)
+                    $cats = @($item.Categories | ForEach-Object { $_.Name })
+                    $detail += [PSCustomObject]@{
+                        Title      = $item.Title
+                        IsDriver   = ($cats -contains "Drivers")
+                        ResultCode = $code
+                    }
+                }
+
                 return [PSCustomObject]@{
                     Stage          = "installed"
-                    Count          = $collection.Count
+                    Count          = $succeeded
+                    Attempted      = $collection.Count
+                    Failed         = $failed
+                    Detail         = $detail
+                    Missing        = $missing
                     RebootRequired = $installResult.RebootRequired
                     ResultCode     = $installResult.ResultCode
                     DownloadCode   = $downloadResult.ResultCode
@@ -467,7 +597,7 @@ function Install-FedOSUpdates {
             } catch {
                 return [PSCustomObject]@{ Stage = "error"; Error = $_.ToString() }
             }
-        }
+        } -ArgumentList (, [string[]]@($UpdatesToInstall | ForEach-Object { [string]$_.Id } | Where-Object { $_ }))
 
         Write-FedLog "Downloading and installing Windows update packages..." -Level "INFO" -Component "OSUpdate"
 
@@ -488,19 +618,47 @@ function Install-FedOSUpdates {
         }
 
         if ($outcome.Stage -eq "search") {
-            Write-FedLog "No updates found in collection for download." -Level "WARN" -Component "OSUpdate"
-            return [PSCustomObject]@{ SuccessCount = 0; FailCount = 0; RebootRequired = $false }
+            # Being asked to install updates and finding none of them to install
+            # is a failure. It was reported as a completed run, so the updates
+            # stayed pending while the run said it had dealt with them.
+            $requested = [int]$outcome.Requested
+            Write-FedLog "Asked to install $requested Windows update(s), but the Update Agent offered none of them back. Nothing was installed." -Level "ERROR" -Component "OSUpdate"
+            $failedResult = [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = $requested
+                RebootRequired = $false
+                Error          = "The Update Agent returned none of the $requested requested update(s)"
+            }
+            Save-FedOSInstallResult -Result $failedResult
+            return $failedResult
         }
 
-        Write-FedLog "Windows Update installation finished. Installed: $($outcome.Count), RebootRequired: $($outcome.RebootRequired), ResultCode: $($outcome.ResultCode)" -Level "SUCCESS" -Component "OSUpdate"
+        foreach ($d in @($outcome.Detail)) {
+            if ($d.ResultCode -eq 2 -or $d.ResultCode -eq 3) {
+                Write-FedLog "Installed: $($d.Title)" -Level "SUCCESS" -Component "OSUpdate"
+            } else {
+                $kind = if ($d.IsDriver) { "driver update" } else { "update" }
+                Write-FedLog "Not installed ($kind, Windows result code $($d.ResultCode)): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+            }
+        }
+        foreach ($m in @($outcome.Missing)) {
+            Write-FedLog "Requested update was not offered back by the Update Agent, so it could not be installed: $m" -Level "WARN" -Component "OSUpdate"
+        }
+
+        $level = if ([int]$outcome.Failed -gt 0 -or @($outcome.Missing).Count -gt 0) { "WARN" } else { "SUCCESS" }
+        Write-FedLog "Windows Update installation finished. Installed $($outcome.Count) of $($outcome.Attempted) attempted, RebootRequired: $($outcome.RebootRequired), ResultCode: $($outcome.ResultCode)" -Level $level -Component "OSUpdate"
         # What was pending before the install cannot still be pending after it.
         Clear-FedOSScanCache
-        return [PSCustomObject]@{
+        $finalResult = [PSCustomObject]@{
             SuccessCount   = $outcome.Count
-            FailCount      = 0
+            FailCount      = ([int]$outcome.Failed + @($outcome.Missing).Count)
             RebootRequired = $outcome.RebootRequired
             ResultCode     = $outcome.ResultCode
         }
+        # Written down so an unelevated parent waiting on this process can read
+        # what actually happened instead of inferring it from an exit code.
+        Save-FedOSInstallResult -Result $finalResult
+        return $finalResult
     }
 }
 

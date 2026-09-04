@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.18] - 2026-09-04
+
+### Fixed
+
+- **Windows Updates Were Reported As Installed By A Run That Installed None Of Them (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`)**:
+  - An update run listed the pending Windows updates, said it had downloaded and installed them, and finished reporting success. Nothing had been installed. The updates were still pending afterwards, still listed here and still listed in Windows' own update screen, including after a restart. Driver updates showed this most plainly, because they are the ones that tend to sit there unchanged, but it applied to every Windows update the run claimed to have handled.
+  - The installation ignored the list it had just produced. Instead of installing the updates that were found, it started again and asked the Update Agent a second time for whatever was pending, then installed the answer to that second question. The two questions were not the same one: the scan reads the local update catalogue, while the installation left its search settings at their defaults and went to the network. The two disagreed, so the list a person was looking at was not the list being acted on, and on this machine the second search returned nothing at all.
+  - Finding nothing to install was treated as a completed run rather than a failure. Asked for two updates and offered none of them back, it recorded no successes, no failures and no error, so nothing anywhere said the run had achieved nothing.
+  - Installing needs elevation, so an unelevated run hands the work to a second process. That process exits, and its exit code says only that it ran. The result was taken to mean that every requested update had been installed. A run that installed nothing exited cleanly, and so was reported as having installed everything.
+  - Every update carries its own outcome, and none of them was read. The number reported as installed was the number attempted, so updates Windows had refused were counted alongside the ones that went on.
+  - Updates that carry a licence were never granted one. An unaccepted licence stops that update downloading, and driver updates are the ones that usually carry it, so those could not have installed even had everything else been right.
+  - The installation now acts on the updates the scan found, matched individually, using the same search the scan used. Licences are accepted before download. Each update's own result decides whether it counts as installed, and anything that did not install is named, with driver updates marked as such. An update that was asked for and not offered back is named too. Being offered none of them is an error, not a completed run. The elevated process records what it actually did and the unelevated one reads that record, so no result is ever inferred from an exit code.
+
+---
+
 ## [1.0.17] - 2026-09-04
 
 ### Fixed
