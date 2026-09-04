@@ -366,11 +366,7 @@ function setupEventListeners() {
   // Direct Target Engine Actions
   document.getElementById('btnUpdateOSDirect')?.addEventListener('click', () => executeTargetUpdate({ os: true }));
   document.getElementById('installAllOSUpdatesBtn')?.addEventListener('click', () => executeTargetUpdate({ os: true }));
-  // Repeating a scan the shield refuses cannot produce a different answer, so
-  // when the last one was refused this asks for elevation, which can.
-  document.getElementById('rescanOSUpdatesBtn')?.addEventListener('click', () => {
-    if (state.scanData && state.scanData.OSScanBlocked) { runElevatedOSScan(); } else { triggerScan(); }
-  });
+  document.getElementById('rescanOSUpdatesBtn')?.addEventListener('click', () => triggerScan({ offerElevation: true }));
 
   document.getElementById('btnUpdateWingetDirect')?.addEventListener('click', () => executeTargetUpdate({ winget: true }));
   document.getElementById('btnSyncStoreDirect')?.addEventListener('click', () => executeTargetUpdate({ store: true }));
@@ -435,8 +431,8 @@ function setupEventListeners() {
   }
 
   // Quick Audit & Refresh
-  document.getElementById('dashboardScanBtn')?.addEventListener('click', triggerScan);
-  document.getElementById('rescanPackagesBtn')?.addEventListener('click', triggerScan);
+  document.getElementById('dashboardScanBtn')?.addEventListener('click', () => triggerScan({ offerElevation: true }));
+  document.getElementById('rescanPackagesBtn')?.addEventListener('click', () => triggerScan({ offerElevation: true }));
   document.getElementById('notifDismissAllBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const notifList = document.getElementById('notifFlyoutList');
@@ -607,7 +603,19 @@ async function loadInitialData() {
 // start it returns, so a caller can wait for the result. The startup sequence
 // waits on this to keep the branding splash up for as long as the first audit
 // runs; the button does not care either way.
-function triggerScan() {
+// A scan that the shield refuses produces no answer about Windows updates, and
+// no amount of scanning from this window ever will. Whichever button was pressed,
+// the one thing that can answer is offered from here, so no entry point is a dead
+// end and none of them has to know anything about how the refusal came about.
+async function offerElevatedOSScan() {
+  const ok = await fedConfirm(
+    'Windows updates could not be checked. The shield keeps the update service disabled, and this window does not run elevated. Checking needs elevation once, and the shield is restored straight afterwards.',
+    { title: 'Check Windows updates?', confirmText: 'Check now' }
+  );
+  if (ok) { await runElevatedOSScan(); }
+}
+
+function triggerScan({ offerElevation = false } = {}) {
   setDockProgress("Scanning", "Auditing OS updates, WinGet packages, Store sync, and reboot state...", 25, true);
 
   return new Promise(async (resolve) => {
@@ -638,6 +646,13 @@ function triggerScan() {
             clearInterval(scanTimer);
             setDockProgress("Ready", "System scan complete.", 100, false);
             document.getElementById('taskProgressDock')?.classList.add('dock-idle');
+            // Asked for by a person, and it could not answer half the question.
+            // Saying so and offering the way through belongs here, once, rather
+            // than in each button that happens to start a scan.
+            if (offerElevation && state.scanData
+                && state.scanData.OSScanBlocked && !state.scanData.OSScanCached) {
+              await offerElevatedOSScan();
+            }
             resolve();
           }
         } catch (err) {

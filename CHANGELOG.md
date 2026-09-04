@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.17] - 2026-09-04
+
+### Fixed
+
+- **Only One Button In The Window Could Answer The Windows Update Question (`gui/app.js`)**:
+  - Scanning from the dashboard ran every engine, was refused on Windows updates because the shield keeps the update service disabled and the window does not run elevated, and stopped there reporting that the updates had not been checked. Elevation, the one thing that could have answered, was offered only from the Windows Updates tab. Pressing Scan System therefore produced a result that could never improve no matter how many times it was pressed, and the way out existed on a different screen with nothing on the dashboard to say so.
+  - A scan that a person started and that could not answer now offers the elevated check wherever it was started from. The offer is made in one place, in the scan itself, rather than written into each button, so no entry point can be a dead end and none of them decides this for itself. Declining leaves everything untouched, as before.
+
+---
+
 ## [1.0.16] - 2026-09-04
 
 ### Fixed
