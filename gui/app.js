@@ -174,9 +174,64 @@ function setupNavigation() {
       // The glyph carries the meaning, so the state is exposed to assistive
       // technology rather than spelled out next to it.
       navToggleBtn.setAttribute('aria-expanded', String(isExpanded));
-      navToggleBtn.title = isExpanded ? 'Collapse navigation' : 'Expand navigation';
+      const toggleLabel = isExpanded ? 'Collapse navigation' : 'Expand navigation';
+      navToggleBtn.dataset.tip = toggleLabel;
+      navToggleBtn.setAttribute('aria-label', toggleLabel);
     });
   }
+
+  setupNavTooltips(navRail);
+}
+
+// A collapsed rail is glyphs and nothing else, so every destination loses its
+// name at the moment the name is needed most. The browser's own title tooltip
+// waits about a second, is drawn by the operating system rather than by this
+// design system, and cannot be placed against the rail. The name is served from
+// the design system instead, and the title attribute retires into aria-label so
+// assistive technology keeps it and no native tooltip appears over this one.
+function setupNavTooltips(navRail) {
+  if (!navRail) return;
+
+  const tip = document.createElement('div');
+  tip.className = 'nav-tooltip';
+  tip.setAttribute('role', 'presentation');
+  document.body.appendChild(tip);
+
+  const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const hide = () => tip.classList.remove('visible');
+
+  const show = (el) => {
+    // Expanded, the label is already on screen and a tooltip would only repeat it.
+    if (navRail.classList.contains('expanded') || !el.dataset.tip) return;
+    const rect = el.getBoundingClientRect();
+    tip.textContent = el.dataset.tip;
+    // The rail clips its own overflow so the label can unfurl without spilling,
+    // which clips anything anchored inside a row too. The tip is positioned
+    // against the viewport to escape that, and in rem so it tracks text scaling.
+    tip.style.setProperty('--nav-tip-top', `${(rect.top + rect.height / 2) / rootFontSize}rem`);
+    tip.style.setProperty('--nav-tip-left', `${rect.right / rootFontSize}rem`);
+    tip.classList.add('visible');
+  };
+
+  navRail.querySelectorAll('.nav-item, .nav-toggle-btn').forEach(el => {
+    const label = el.getAttribute('title')
+      || el.querySelector('.nav-label')?.textContent?.trim()
+      || el.getAttribute('aria-label');
+    if (label) {
+      el.dataset.tip = label;
+      el.setAttribute('aria-label', label);
+      el.removeAttribute('title');
+    }
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('focus', () => show(el));
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('blur', hide);
+    el.addEventListener('click', hide);
+  });
+
+  navRail.addEventListener('mouseleave', hide);
+  window.addEventListener('resize', hide);
+  window.addEventListener('scroll', hide, true);
 }
 
 // Setup Theme Switcher with Windows OS Auto-Detection
@@ -311,7 +366,11 @@ function setupEventListeners() {
   // Direct Target Engine Actions
   document.getElementById('btnUpdateOSDirect')?.addEventListener('click', () => executeTargetUpdate({ os: true }));
   document.getElementById('installAllOSUpdatesBtn')?.addEventListener('click', () => executeTargetUpdate({ os: true }));
-  document.getElementById('rescanOSUpdatesBtn')?.addEventListener('click', triggerScan);
+  // Repeating a scan the shield refuses cannot produce a different answer, so
+  // when the last one was refused this asks for elevation, which can.
+  document.getElementById('rescanOSUpdatesBtn')?.addEventListener('click', () => {
+    if (state.scanData && state.scanData.OSScanBlocked) { runElevatedOSScan(); } else { triggerScan(); }
+  });
 
   document.getElementById('btnUpdateWingetDirect')?.addEventListener('click', () => executeTargetUpdate({ winget: true }));
   document.getElementById('btnSyncStoreDirect')?.addEventListener('click', () => executeTargetUpdate({ store: true }));
@@ -855,6 +914,25 @@ function renderPackagesTable() {
 function renderOSUpdatesTable() {
   const tbody = document.getElementById('osUpdatesTableBody');
   if (!tbody) return;
+
+  // A refused scan yields no rows, which looks exactly like a scan that ran and
+  // found nothing. Declaring the system up to date on the strength of a check
+  // that never happened is the one thing this table must never do, so the
+  // refusal is reported as itself, with the way to resolve it.
+  if (state.scanData && state.scanData.OSScanBlocked) {
+    const reason = state.scanData.OSScanReason
+      || 'The Windows Update service is disabled by the anti-tamper shield.';
+    tbody.innerHTML = `
+      <tr class="placeholder-row">
+        <td colspan="6">
+          Windows updates were not checked. ${escapeHtml(reason)}
+          Checking needs elevation once, and the shield is restored straight afterwards.
+          <button class="btn btn-secondary btn-sm" onclick="runElevatedOSScan()">Check now</button>
+        </td>
+      </tr>
+    `;
+    return;
+  }
 
   const osUpdates = (state.scanData && Array.isArray(state.scanData.OSUpdates)) ? state.scanData.OSUpdates : [];
   if (osUpdates.length === 0) {

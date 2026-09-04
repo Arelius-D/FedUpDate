@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.15] - 2026-08-28
+
+### Fixed
+
+- **The Windows Updates Tab Reported A Result From A Check It Never Made (`gui/app.js`)**:
+  - With the shield on, checking for Windows updates is refused unless the session is elevated, and the desktop window is not elevated. The refusal came back with no updates attached, and the table on the Windows Updates tab read that empty list as an answer and printed that Windows is fully up to date. The dashboard card beside it read the same scan correctly and said the check had not been made. One scan, one set of data, two tabs disagreeing about it, and the one that sounded confident was the one that was wrong.
+  - The table now reports a refused check as a refused check, names the reason, and offers the elevated check that can answer the question. A check that ran and genuinely found nothing still reports the system up to date, and a check that found updates still lists them.
+  - Scan OS Updates on that tab repeated the refusal every time it was pressed, since nothing about pressing it again could lift the condition that caused the refusal. When the last check was refused it now asks for elevation instead, which is the only thing that can produce an answer. The shield is restored straight afterwards.
+
+- **The Collapsed Navigation Rail Named Nothing (`gui/app.js`, `gui/styles.css`)**:
+  - Collapsed, the rail is nine glyphs and no text, and hovering one produced nothing. Each destination carried a browser tooltip, which waits about a second, is drawn by Windows rather than by this application, and cannot be placed against the rail. In practice the rail was unlabelled at exactly the width where the labels are gone.
+  - Hovering or tabbing to a glyph now names the destination immediately, in the application's own surface, border and type, placed to the right of the rail. The names are kept on the buttons for screen readers, so nothing was traded away to get this.
+
+---
+
 ## [1.0.14] - 2026-08-28
 
 ### Fixed
