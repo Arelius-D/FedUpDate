@@ -893,6 +893,37 @@ body {
   gap: 0;
 }
 
+/* Collapsed rail tooltip. The rail hides its own overflow so a label can unfurl
+   with the width rather than spill past it, and that clipping applies to
+   anything anchored inside a row as well. This is positioned against the
+   viewport from script, which escapes the clip, and carries the appearance the
+   native tooltip cannot: this design system's surface, border and type. */
+.nav-tooltip {
+  position: fixed;
+  top: var(--nav-tip-top, 0rem);
+  left: calc(var(--nav-tip-left, 0rem) + var(--sys-space-sm));
+  transform: translateY(-50%);
+  z-index: var(--sys-z-flyout);
+  padding: var(--sys-space-xs) var(--sys-space-smd);
+  border-radius: var(--sys-radius-sm);
+  background: var(--sys-color-surface-card);
+  border: var(--sys-border-width) solid var(--sys-color-border-subtle);
+  box-shadow: var(--sys-shadow-md);
+  color: var(--sys-color-text-primary);
+  font-size: var(--sys-font-size-sm);
+  font-weight: var(--sys-font-weight-medium);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--sys-motion-duration-fast) var(--sys-motion-ease-default), visibility var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.nav-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* --------------------------------------------------------------------------
    Content Viewport & Pages
    -------------------------------------------------------------------------- */
