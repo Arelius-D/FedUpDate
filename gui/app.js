@@ -691,7 +691,7 @@ function updateDashboardUI() {
       // This session could not check, but an elevated one already did, and its
       // answer outlived the process that produced it. Reporting that answer with
       // its age beats reporting nothing on a question already answered.
-      osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
+      osEl.textContent = fedUpdateCountLabel(OSUpdateCount);
       osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
       osEl.title = `Checked ${fedRelativeTime(OSScanCheckedAt)}. This window cannot check on its own while the shield is on.`;
     } else if (OSScanBlocked) {
@@ -699,7 +699,7 @@ function updateDashboardUI() {
       osEl.className = 'badge-pill badge-recommended';
       osEl.title = OSScanReason || 'The Windows Update service is disabled by the shield.';
     } else {
-      osEl.textContent = `${OSUpdateCount || 0} KBs Pending`;
+      osEl.textContent = fedUpdateCountLabel(OSUpdateCount);
       osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
       osEl.title = '';
     }
@@ -973,7 +973,7 @@ function renderOSUpdatesTable() {
   tbody.innerHTML = cachedNote + osUpdates.map(u => `
     <tr>
       <td style="font-weight: 600;">${escapeHtml(u.Title || 'Windows Update')}</td>
-      <td><span class="badge-pill badge-info">${escapeHtml(u.KB || 'KB-Cumulative')}</span></td>
+      <td><span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span></td>
       <td><span class="badge-pill ${u.IsSecurity ? 'badge-danger' : (u.IsDefender ? 'badge-purple' : 'badge-green')}">${u.IsDefender ? 'Defender Intelligence' : (u.IsSecurity ? 'Security Update' : 'Quality Update')}</span></td>
       <td>${u.SizeMB ? u.SizeMB + ' MB' : 'Dynamic CDN'}</td>
       <td><span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span></td>
@@ -1580,6 +1580,15 @@ async function runSelfUpdate() {
 // A recovered result is only worth showing if it is dated, because the value of
 // "3 pending" depends entirely on whether that was measured a minute or a month
 // ago, and this window cannot take a fresh measurement on its own.
+// Not every Windows update has a KB article. Driver and optional updates
+// generally have none, so counting them as KBs named them after an identifier
+// they do not carry and that nothing else on the system would show.
+function fedUpdateCountLabel(n) {
+  const count = n || 0;
+  if (count === 0) return 'No updates pending';
+  return count === 1 ? '1 update pending' : `${count} updates pending`;
+}
+
 function fedRelativeTime(iso) {
   if (!iso) return 'earlier';
   const then = new Date(iso);

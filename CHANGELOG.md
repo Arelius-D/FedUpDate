@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.20] - 2026-09-04
+
+### Fixed
+
+- **An Update That Had Installed Was Reported As Still Pending, And Offered Again Forever (`core/OSUpdateEngine.ps1`)**:
+  - After installing, the run checked what was still pending by reading Windows' local update catalogue. An installation does not rewrite that catalogue, so it went on listing the update that had just been installed. The run therefore reported nothing installed and one still pending, the interfaces kept offering that update, and installing it again produced exactly the same outcome. Windows' own update screen listed nothing, because the update was in fact installed. The two accounts could never converge, because only one of them was being asked anything new.
+  - The check that runs after an installation now asks Windows Update rather than reading the catalogue, so it reflects what is actually still outstanding. A routine scan still reads the catalogue, which is what keeps it quick, but a routine scan is not being asked to prove that something installed.
+  - When the Update Agent says an update succeeded and Windows still offers it afterwards, both facts are now reported. Which of the two is right is not something this can settle, so neither is quietly discarded.
+
+- **Updates Without A KB Article Were Counted As KBs (`gui/app.js`, `tui/TuiEngine.ps1`)**:
+  - Driver updates and optional updates generally carry no KB article, and the pending count was labelled in KBs regardless. A single driver update with no article number was presented as one KB pending, naming it after an identifier it does not have and that nothing else on the system would show for it. The table went further and filled the empty column with an invented label rather than leaving it empty.
+  - The count is now given in updates, and an update with no KB article is shown as having none.
+
+---
+
 ## [1.0.19] - 2026-09-04
 
 ### Fixed

@@ -677,7 +677,15 @@ function Install-FedOSUpdates {
         $stillPending = @()
         $recheckFailed = $false
         try {
-            $stillPending = @(Get-FedOSUpdates -IncludeDefender:$false)
+            # Asked of Windows Update rather than of the local catalogue. A
+            # routine scan reads the catalogue because it is fast, but the
+            # catalogue is not rewritten by an installation, so it goes on
+            # listing what was just installed. Checked that way, an update that
+            # had gone in came back as still pending, the run called itself a
+            # failure, and the next run tried the same update again on the
+            # strength of the same stale entry. Only a fresh answer from Windows
+            # settles whether something is still pending.
+            $stillPending = @(Get-FedOSUpdates -IncludeDefender:$false -Online)
         } catch {
             $recheckFailed = $true
             Write-FedLog "Could not re-check Windows updates after installing, so what installed cannot be confirmed: $_" -Level "WARN" -Component "OSUpdate"
@@ -698,7 +706,13 @@ function Install-FedOSUpdates {
                 $remainingCount++
                 $kind = if ($d.IsDriver) { "driver update" } else { "update" }
                 $why = Get-FedUpdateResultText -Code ([int]$d.ResultCode)
-                Write-FedLog "Still pending after the run ($kind, the Update Agent reported: $why): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+                if ([int]$d.ResultCode -eq 2 -or [int]$d.ResultCode -eq 3) {
+                    # Two sources that should agree and do not. Neither is hidden,
+                    # because which one is right is not something this can settle.
+                    Write-FedLog "Still offered by Windows after the run, although the Update Agent reported it $why ($kind): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+                } else {
+                    Write-FedLog "Still pending after the run ($kind, the Update Agent reported: $why): $($d.Title)" -Level "WARN" -Component "OSUpdate"
+                }
             } else {
                 $installedCount++
                 Write-FedLog "Installed: $($d.Title)" -Level "SUCCESS" -Component "OSUpdate"

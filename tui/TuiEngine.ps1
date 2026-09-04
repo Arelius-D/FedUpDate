@@ -46,7 +46,7 @@ function Show-FedStatusBar {
     } else {
         # A blocked scan has no number to show, so it says so rather than
         # borrowing the one that means "nothing pending".
-        $osCount = if ($ScanResult.OSScanBlocked -and -not $ScanResult.OSScanCached) { "not checked" } else { "$($ScanResult.OSUpdateCount) KBs" }
+        $osCount = if ($ScanResult.OSScanBlocked -and -not $ScanResult.OSScanCached) { "not checked" } elseif ([int]$ScanResult.OSUpdateCount -eq 1) { "1 update" } else { "$($ScanResult.OSUpdateCount) updates" }
         $wgCount = $ScanResult.WingetUpdateCount
         $rebootBadge = Get-FedRebootBadge -Severity $ScanResult.RebootSeverity
         $guardBadge = if ($ScanResult.WatchdogDrifted) { "`e[43;30m DRIFT DETECTED `e[0m" } else { "`e[42;30m SHIELD ACTIVE `e[0m" }
