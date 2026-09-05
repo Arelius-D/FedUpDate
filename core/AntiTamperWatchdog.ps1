@@ -192,6 +192,36 @@ function Enforce-FedWatchdog {
     return $true
 }
 
+function Get-FedManagedState {
+    <#
+    .SYNOPSIS
+        Every setting this application is capable of changing.
+    .DESCRIPTION
+        The enforcement and the baseline have to describe the same settings, or
+        the record will be of one thing and the change of another. Both read
+        this list, so a setting cannot be enforced without being recorded first.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $auPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+    $auPathUser = "HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+
+    return @(
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPath;     ValueName = "NoAutoUpdate";                    Value = 1; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPath;     ValueName = "AUOptions";                       Value = 2; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPath;     ValueName = "NoAutoRebootWithLoggedOnUsers";   Value = 1; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPath;     ValueName = "AlwaysAutoRebootAtScheduledTime"; Value = 0; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPathUser; ValueName = "NoAutoUpdate";                    Value = 1; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Registry"; KeyPath = $auPathUser; ValueName = "AUOptions";                       Value = 2; ValueType = "DWord" }
+        [PSCustomObject]@{ Kind = "Service";  ServiceName = "wuauserv" }
+        [PSCustomObject]@{ Kind = "Service";  ServiceName = "DoSvc" }
+        [PSCustomObject]@{ Kind = "Task";     TaskPath = "\Microsoft\Windows\UpdateOrchestrator\"; TaskName = "Schedule Scan" }
+        [PSCustomObject]@{ Kind = "Task";     TaskPath = "\Microsoft\Windows\UpdateOrchestrator\"; TaskName = "Report policies" }
+        [PSCustomObject]@{ Kind = "Task";     TaskPath = "\Microsoft\Windows\WindowsUpdate\";      TaskName = "Scheduled Start" }
+    )
+}
+
 function Install-FedWatchdogTask {
     [CmdletBinding()]
     param(

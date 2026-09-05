@@ -58,6 +58,134 @@ function Save-FedLedger {
     }
 }
 
+function Save-FedInstallBaseline {
+    <#
+    .SYNOPSIS
+        Writes down how this machine was found, before anything is changed.
+    .DESCRIPTION
+        Everything this application can undo rests on knowing what was there to
+        begin with. That was being learned during enforcement, which is the one
+        moment it cannot be learned, because by then the values being read are
+        the ones just written. A machine that already held these values, from an
+        earlier installation or from somebody setting them by hand, recorded the
+        enforced values as its own originals and an uninstall put those back and
+        reported the machine restored.
+
+        This runs at installation, before a single setting is touched, and reads
+        each of them as they are. It writes nothing to the machine.
+
+        It runs once. An installation that already has a baseline keeps the one
+        it has, because the first answer is the true one and a later reading is
+        only a reading of this application's own work.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $existing = @(Get-FedLedger)
+    foreach ($t in $existing) {
+        if ($t.Description -eq "Machine state as found at installation") {
+            Write-FedLog "A baseline was already taken on $($t.Timestamp); keeping it." -Level "INFO" -Component "Rollback"
+            return $true
+        }
+    }
+
+    # Scheduled tasks under the update folders are not visible to an ordinary
+    # session, and a service's configuration is only fully readable to one that
+    # is elevated. Reading them from a session that cannot see them returns "not
+    # found", which is not what was there, and recording that as the original
+    # would have an uninstall act on something it never actually saw.
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-FedLog "This session cannot see the scheduled tasks the shield manages, so those are recorded as unread rather than as absent." -Level "WARN" -Component "Rollback"
+    }
+
+    $tx = New-FedTransaction -Description "Machine state as found at installation"
+
+    foreach ($item in (Get-FedManagedState)) {
+        switch ($item.Kind) {
+            "Registry" {
+                $existed = $false
+                $value = $null
+                $kind = $null
+                try {
+                    if (Test-Path $item.KeyPath) {
+                        $prop = Get-ItemProperty -Path $item.KeyPath -Name $item.ValueName -ErrorAction SilentlyContinue
+                        if ($null -ne $prop -and $null -ne $prop.($item.ValueName)) {
+                            $existed = $true
+                            $value = $prop.($item.ValueName)
+                            $hive = if ($item.KeyPath -like "HKCU:*") { [Microsoft.Win32.Registry]::CurrentUser } else { [Microsoft.Win32.Registry]::LocalMachine }
+                            $sub = $item.KeyPath.Substring($item.KeyPath.IndexOf([char]92) + 1)
+                            $rk = $hive.OpenSubKey($sub)
+                            if ($rk) { $kind = $rk.GetValueKind($item.ValueName).ToString(); $rk.Close() }
+                        }
+                    }
+                } catch { }
+
+                $tx.Changes.Add([PSCustomObject]@{
+                    Type          = "Registry"
+                    KeyPath       = $item.KeyPath
+                    ValueName     = $item.ValueName
+                    ExistedBefore = $existed
+                    OriginalValue = $value
+                    OriginalType  = $kind
+                    NewValue      = $item.Value
+                    NewType       = $item.ValueType
+                    Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+                })
+                Write-FedLog "Found [$($item.KeyPath)] '$($item.ValueName)': $(if ($existed) { "'$value'" } else { 'not set' })." -Level "INFO" -Component "Rollback"
+            }
+
+            "Service" {
+                $svc = Get-Service -Name $item.ServiceName -ErrorAction SilentlyContinue
+                $startType = if ($svc) { $svc.StartType.ToString() } else { "NotFound" }
+                $status = if ($svc) { $svc.Status.ToString() } else { "NotFound" }
+
+                $tx.Changes.Add([PSCustomObject]@{
+                    Type              = "Service"
+                    ServiceName       = $item.ServiceName
+                    OriginalStartType = $startType
+                    OriginalStatus    = $status
+                    NewStartType      = "Disabled"
+                    Timestamp         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+                })
+                Write-FedLog "Found service '$($item.ServiceName)': $startType, $status." -Level "INFO" -Component "Rollback"
+            }
+
+            "Task" {
+                $task = Get-ScheduledTask -TaskPath $item.TaskPath -TaskName $item.TaskName -ErrorAction SilentlyContinue
+                # Absent and invisible look identical from here, and only one of
+                # them is a fact about the machine.
+                $state = if ($task) { $task.State.ToString() } elseif ($isAdmin) { "NotFound" } else { "Unread" }
+
+                $tx.Changes.Add([PSCustomObject]@{
+                    Type          = "ScheduledTask"
+                    TaskPath      = $item.TaskPath
+                    TaskName      = $item.TaskName
+                    OriginalState = $state
+                    NewState      = "Disable"
+                    Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+                })
+                if ($state -eq "Unread") {
+                    Write-FedLog "Could not read scheduled task '$($item.TaskPath)$($item.TaskName)' from this session, so nothing is claimed about it." -Level "WARN" -Component "Rollback"
+                } else {
+                    Write-FedLog "Found scheduled task '$($item.TaskPath)$($item.TaskName)': $state." -Level "INFO" -Component "Rollback"
+                }
+            }
+        }
+    }
+
+    Commit-FedTransaction -Transaction $tx | Out-Null
+
+    $unread = @($tx.Changes | Where-Object { $_.OriginalState -eq "Unread" }).Count
+    $read = @($tx.Changes).Count - $unread
+    if ($unread -gt 0) {
+        Write-FedLog "Baseline taken: $read setting(s) recorded as found. $unread could not be read from this session and are marked unknown rather than guessed at; an uninstall will leave those alone." -Level "WARN" -Component "Rollback"
+    } else {
+        Write-FedLog "Baseline taken: $read setting(s) recorded as found, before anything was changed." -Level "SUCCESS" -Component "Rollback"
+    }
+    return $true
+}
+
 function New-FedTransaction {
     [CmdletBinding()]
     param(
@@ -631,6 +759,13 @@ function Restore-FedState {
                     }
                 }
                 "ScheduledTask" {
+                    # A state that was never readable is not a state. Acting on
+                    # it would have an uninstall set a task to a value nobody
+                    # ever observed, which is worse than leaving it as it is.
+                    if ($ch.OriginalState -eq "Unread") {
+                        Write-FedLog "Scheduled task '$($ch.TaskPath)$($ch.TaskName)' was never readable, so its earlier state is unknown and it is left alone." -Level "WARN" -Component "Rollback"
+                        continue
+                    }
                     if ($WhatIf) {
                         Write-FedLog "[WHATIF] Would restore Scheduled Task '$($ch.TaskPath)$($ch.TaskName)' -> '$($ch.OriginalState)'" -Level "WHATIF" -Component "Rollback"
                     } else {

@@ -648,6 +648,32 @@ $cmdPath = Join-Path $scriptDir "fedupdate.cmd"
 $ps1Path = Join-Path $scriptDir "fedupdate.ps1"
 $vbsPath = Join-Path $scriptDir "fedupdate-gui.vbs"
 
+# Everything this application can undo rests on knowing how the machine was
+# before it arrived. That was being learned during enforcement, which is the one
+# moment it cannot be learned, because the values read then are the ones just
+# written. A machine already holding these settings recorded them as its own
+# originals, and an uninstall put them back and called the machine restored.
+#
+# So it is read here, at installation, before anything is touched. This is also
+# the first thing that writes the log, so an installation is no longer a thing
+# that happened to a machine with no record of it.
+try {
+    $engineModule = Join-Path $scriptDir "core\Engine.psm1"
+    if (Test-Path $engineModule) {
+        Import-Module $engineModule -Force -DisableNameChecking -ErrorAction Stop
+        Write-Host "[INFO] Recording how this machine is set up, before anything is changed..." -ForegroundColor Cyan
+        Save-FedInstallBaseline | Out-Null
+        Write-Host "[OK] Baseline recorded. An uninstall can put these settings back as they are now." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Engine not found, so no baseline was taken. An uninstall will not be able to restore the previous settings." -ForegroundColor Yellow
+    }
+} catch {
+    # Said out loud rather than passed over. Without this the application can
+    # still update things, but it cannot honestly promise to undo them.
+    Write-Host "[WARN] Could not record the machine's current settings: $_" -ForegroundColor Yellow
+    Write-Host "       An uninstall will not be able to restore them. Everything else is installed." -ForegroundColor Yellow
+}
+
 # 2. Check Elevation Context
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($isAdmin) {

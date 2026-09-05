@@ -5,6 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.30] - 2026-09-06
+
+### Added
+
+- **The Machine Is Written Down At Installation, Before Anything Is Changed (`install.ps1`, `core/RollbackEngine.ps1`, `core/AntiTamperWatchdog.ps1`, `core/Engine.psm1`)**:
+  - Everything this application offers to undo rests on knowing how the machine was before it arrived. That was being learned during enforcement, which is the one moment it cannot be learned, because the values read then are the ones the enforcement has just written. On a machine already holding these settings, whether from an earlier installation or from somebody setting them by hand, the enforced values were recorded as that machine's own originals. An uninstall then put those values back and reported the machine restored, having restored nothing.
+  - Installing now reads every setting this application is able to change, as it finds them, and writes them down before a single one is touched. It changes nothing while doing so. It is also the first thing that writes the log, so an installation is no longer something that happens to a machine without a record of it.
+  - It happens once. A later installation keeps the baseline already taken, because the first answer is the true one and any later reading is a reading of this application's own work.
+  - The settings the enforcement changes and the settings the baseline records now come from one list, so the record cannot describe one set of things while the change is made to another.
+
+### Fixed
+
+- **A Setting That Could Not Be Read Was Recorded As Absent (`core/RollbackEngine.ps1`)**:
+  - Scheduled tasks under the Windows Update folders are invisible to an ordinary session. Read from one, they come back as not found, which is not what is there. Recorded that way, an uninstall would act on a state nobody had ever observed.
+  - A setting that could not be read is recorded as unread, and told apart from one genuinely absent. A restore leaves an unread setting alone rather than moving it somewhere unobserved, and the count reported after a baseline says how many were read and how many were not.
+
+---
+
 ## [1.0.29] - 2026-09-05
 
 ### Fixed
