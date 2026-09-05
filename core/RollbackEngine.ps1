@@ -144,6 +144,18 @@ function Record-FedRegistryChange {
         # Registry inspection fallback
     }
 
+    # What a setting was before this application first moved it is worth writing
+    # down once. After that the answer does not change, and a run that finds the
+    # setting already where it should be has moved nothing, so there is nothing
+    # to undo and nothing to record. Writing it down regardless is what grew the
+    # record by ten entries every quarter of an hour for as long as the
+    # application stayed installed, all of them describing the same few settings.
+    if ($existed -and $origValue -eq $NewValue -and
+        ([string]::IsNullOrWhiteSpace($origType) -or $origType -eq $ValueType)) {
+        Write-FedLog "Registry [$KeyPath] '$ValueName' is already '$NewValue'. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+        return
+    }
+
     $change = [PSCustomObject]@{
         Type          = "Registry"
         KeyPath       = $KeyPath
@@ -207,6 +219,12 @@ function Record-FedServiceChange {
         $origStatus = $service.Status.ToString()
     }
 
+    # Already set the way it is being asked for, so nothing is being changed.
+    if ($service -and $origStartType -eq $NewStartType) {
+        Write-FedLog "Service '$ServiceName' is already $NewStartType. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+        return
+    }
+
     $change = [PSCustomObject]@{
         Type              = "Service"
         ServiceName       = $ServiceName
@@ -267,6 +285,16 @@ function Record-FedTaskChange {
 
     $task = Get-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue
     $origState = if ($task) { $task.State.ToString() } else { "NotFound" }
+
+    # A task's state reads as Ready or Disabled, while the instruction is Enable
+    # or Disable. Compared in those terms, a task already in the state being
+    # asked for is not being changed.
+    $alreadyInState = ($NewState -eq "Disable" -and $origState -eq "Disabled") -or
+                      ($NewState -eq "Enable"  -and $origState -eq "Ready")
+    if ($task -and $alreadyInState) {
+        Write-FedLog "Scheduled task '$TaskPath$TaskName' is already $origState. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+        return
+    }
 
     $change = [PSCustomObject]@{
         Type          = "ScheduledTask"
@@ -355,6 +383,14 @@ function Commit-FedTransaction {
         return $true
     }
 
+    # A run that found everything already as it should be has nothing to undo.
+    # Writing that down anyway is what grew the ledger without bound: the shield
+    # checks itself on a timer, and every check recorded the same settings again.
+    if (@($Transaction.Changes).Count -eq 0) {
+        Write-FedLog "Nothing changed in transaction '$($Transaction.Id)' ($($Transaction.Description)), so nothing was recorded." -Level "INFO" -Component "Rollback"
+        return $true
+    }
+
     $Transaction.Status = "Committed"
     $ledger = @(Get-FedLedger)
     $ledger += $Transaction
@@ -420,7 +456,38 @@ function Restore-FedState {
     } elseif ($Latest) {
         $targets = @($ledger[-1])
     } elseif ($All) {
-        $targets = [array]($ledger[($ledger.Count - 1)..0]) # reverse chronological
+        # Undoing everything means putting each setting back to how it was before
+        # this application first touched it. That is one value per setting, not
+        # one per time it was written. The shield re-applies the same handful of
+        # settings on every run and on a timer, so a ledger accumulates thousands
+        # of records of the same values, and replaying them one by one turned an
+        # uninstall into tens of thousands of registry writes that all end at the
+        # same place. The earliest record of each setting is the original, and
+        # applying that once is the whole of the work.
+        $seen = @{}
+        $collapsed = @()
+        foreach ($tx in $ledger) {
+            foreach ($ch in @($tx.Changes)) {
+                $key = switch ($ch.Type) {
+                    "Registry"      { "reg|$($ch.KeyPath)|$($ch.ValueName)" }
+                    "Service"       { "svc|$($ch.ServiceName)" }
+                    "ScheduledTask" { "task|$($ch.TaskName)|$($ch.TaskPath)" }
+                    "File"          { "file|$($ch.OriginalPath)" }
+                    Default         { "other|$($ch.Type)|$([string]$ch)" }
+                }
+                if (-not $seen.ContainsKey($key)) {
+                    $seen[$key] = $true
+                    $collapsed += $ch
+                }
+            }
+        }
+
+        Write-FedLog "Collapsed $($ledger.Count) recorded transactions into $($collapsed.Count) setting(s) to put back." -Level "INFO" -Component "Rollback"
+        $targets = @([PSCustomObject]@{
+            Id          = "collapsed-all"
+            Description = "Every setting returned to how it was first found"
+            Changes     = $collapsed
+        })
     } else {
         $targets = @($ledger[-1])
     }

@@ -5,6 +5,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.28] - 2026-09-05
+
+### Fixed
+
+- **Uninstalling Replayed Every Record Instead Of Putting Each Setting Back Once (`core/RollbackEngine.ps1`)**:
+  - This application changes ten things: six registry values, one service and three scheduled tasks. Undoing them is ten operations. Choosing to undo them during an uninstall instead worked through every record ever written, one at a time, which on a machine that had been running the shield for a while meant tens of thousands of writes that all finish at the same place. An uninstall that should take seconds sat there long enough to look broken, and there was nothing on screen to say what it was doing or how much was left.
+  - Undoing everything now works out what each setting was before this application first touched it, and puts it back once. The earliest record of a setting is the one that holds its true original, because every later record only saw what had already been applied, so collapsing to anything newer would restore the enforced value and leave the machine changed by its own uninstall.
+
+- **The Record Of Changes Grew Without Limit (`core/RollbackEngine.ps1`)**:
+  - What a setting was before this application first moved it is a fact that is settled the moment it is first written down. It does not change afterwards, and there is exactly one of it per setting. The shield nevertheless checks itself on a timer and re-applies the same settings whether or not anything has moved, and every one of those checks was written down in full, as though each had discovered the original state again. The record grew by ten entries every quarter of an hour for as long as the application stayed installed, all describing the same ten settings, and a machine left running for a few weeks accumulated tens of megabytes of it.
+  - A setting found already holding the value being asked for has not been changed, so nothing is recorded for it. The same now applies to a service already set the way it is being asked for and to a scheduled task already in the state being asked for. The original is written down the first time this application moves a setting, and never again. A setting that genuinely moves later is still recorded, because that is a change with something to undo.
+
+### Changed
+
+- **The Uninstall Prompt Says The Application Is Going (`install.ps1`)**:
+  - It opened by asking what should happen to the update settings, and never said the removal itself was already settled, so the plain uninstall looked like it was missing from its own list of options. The first answer was that uninstall, described in terms of Windows defaults rather than in terms of removing anything.
+  - It now says the application is being removed before it asks anything else, and the first answer is the ordinary uninstall in plain words. That answer is the default, so it can be taken with the Enter key rather than studied for. Keeping settings deliberately still has to be asked for, and an unattended run still has to state its outcome, because there is nobody there to have meant anything.
+
+---
+
 ## [1.0.27] - 2026-09-05
 
 ### Added

@@ -177,29 +177,41 @@ function Read-FedYesNo {
 
 function Read-FedUninstallMode {
     <#
-        Asks what should become of the update settings and of the ledger that
-        records them. Follows the same rule as Read-FedYesNo: an unrecognised
-        answer re-asks rather than silently taking a branch the user did not
-        choose. There is no default, because every branch here is a decision
-        about the machine's own update policy.
+        The application is going either way. The only open question is what
+        happens to the Windows update settings it changed, and the wording used
+        to lead with that question without ever saying the removal itself was
+        settled, so an ordinary uninstall looked like it was missing.
+
+        The first answer is the ordinary uninstall: undo everything and remove
+        it all. It is offered as the default, since a person who wants nothing
+        left behind should not have to study three options to find out which one
+        means that. The other two exist for keeping settings deliberately, and
+        still have to be asked for.
+
+        An unrecognised answer re-asks rather than silently taking a branch
+        nobody chose. An unattended run has no default at all and must state its
+        outcome, because there is nobody there to have meant anything.
     #>
     Write-Host ""
-    Write-Host "  What should happen to the update settings FedUpDate applied?" -ForegroundColor Cyan
-    Write-Host "    1  Restore Windows defaults. Undo every change FedUpDate made."
-    Write-Host "    2  Keep the settings, and keep the ledger so they can be reverted later."
-    Write-Host "    3  Keep the settings, and delete the ledger. They become permanent."
+    Write-Host "  FedUpDate will be removed. The only question is what happens to the" -ForegroundColor Cyan
+    Write-Host "  Windows update settings it changed." -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  The on-boot enforcer is removed with the application in every case, so" -ForegroundColor Gray
-    Write-Host "  kept settings are no longer defended and Windows may revert them later." -ForegroundColor Gray
+    Write-Host "    1  Undo them and remove everything. Windows is left as it was.  [default]"
+    Write-Host "    2  Leave them in place, and keep the record so they can be undone later."
+    Write-Host "    3  Leave them in place, and delete the record. They become permanent."
+    Write-Host ""
+    Write-Host "  The on-boot enforcer goes with the application either way, so settings" -ForegroundColor Gray
+    Write-Host "  left in place are no longer defended and Windows may change them back." -ForegroundColor Gray
     Write-Host ""
 
     while ($true) {
-        $answer = (Read-Host "  Choose 1, 2 or 3").Trim()
+        $answer = (Read-Host "  Choose 1, 2 or 3, or press Enter for 1").Trim()
         switch ($answer) {
+            ""      { return "RestoreDefaults" }
             "1"     { return "RestoreDefaults" }
             "2"     { return "KeepSettings" }
             "3"     { return "KeepSettingsAndPurge" }
-            Default { Write-Host "  Please answer 1, 2 or 3." -ForegroundColor Yellow }
+            Default { Write-Host "  Please answer 1, 2 or 3, or press Enter for 1." -ForegroundColor Yellow }
         }
     }
 }
