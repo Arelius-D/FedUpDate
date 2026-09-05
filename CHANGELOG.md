@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.27] - 2026-09-05
+
+### Added
+
+- **The Desktop Interface Offers The Same Reading The Text One Does (`core/OSUpdateEngine.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`, `gui/styles.css`)**:
+  - Each pending update carried the address of Microsoft's article for it, and only the text interface showed it. The desktop interface listed the same updates with the same article numbers and offered no way to reach any of them, so which interface was open decided whether reading before installing was possible at all.
+  - The article number in the update list is now the way to the article. An update with nothing published is left as it was, with no address invented for it, and a driver update still says who documents it instead. The article opens in the reader's own browser rather than replacing the interface with a web page.
+  - The address is worked out once, on the update itself, and every interface reads that. It was being worked out where it was displayed, which is how two interfaces come to disagree about the same update, and this application has spent enough releases on exactly that.
+
+---
+
 ## [1.0.26] - 2026-09-05
 
 ### Fixed

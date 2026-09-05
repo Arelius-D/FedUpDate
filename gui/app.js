@@ -973,7 +973,9 @@ function renderOSUpdatesTable() {
   tbody.innerHTML = cachedNote + osUpdates.map(u => `
     <tr>
       <td style="font-weight: 600;">${escapeHtml(u.Title || 'Windows Update')}</td>
-      <td><span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span></td>
+      <td>${u.ArticleUrl
+        ? `<a class="badge-pill badge-info article-link" href="${escapeHtml(u.ArticleUrl)}" title="Read Microsoft's article for this update">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'Read about it')}</a>`
+        : `<span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span>`}</td>
       <td><span class="badge-pill ${u.IsSecurity ? 'badge-danger' : (u.IsDefender ? 'badge-purple' : 'badge-green')}">${u.IsDefender ? 'Defender Intelligence' : (u.IsSecurity ? 'Security Update' : 'Quality Update')}</span></td>
       <td>${u.SizeMB ? u.SizeMB + ' MB' : 'Dynamic CDN'}</td>
       <td><span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span></td>

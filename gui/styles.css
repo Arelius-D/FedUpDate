@@ -893,6 +893,25 @@ body {
   gap: 0;
 }
 
+/* An update's article, reachable from the row it belongs to. It leaves the
+   application, so the host hands it to the reader's own browser rather than
+   navigating this window away from the interface. */
+.article-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: filter var(--sys-motion-duration-fast) var(--sys-motion-ease-default);
+}
+
+.article-link:hover {
+  text-decoration: underline;
+  filter: brightness(1.15);
+}
+
+.article-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--sys-space-xxs) var(--sys-color-focus-ring);
+}
+
 /* Collapsed rail tooltip. The rail hides its own overflow so a label can unfurl
    with the width rather than spill past it, and that clipping applies to
    anything anchored inside a row as well. This is positioned against the

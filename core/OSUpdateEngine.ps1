@@ -554,6 +554,19 @@ function Get-FedOSUpdates {
         Save-FedOSScanCache -Updates @($results)
     }
 
+    # Worked out once, here, and carried on the update. Each interface deciding
+    # this for itself is how two of them come to disagree about the same update,
+    # and an interface that guesses at an address is how somebody is sent to a
+    # page that was never published.
+    foreach ($item in $results) {
+        $article = Get-FedUpdateArticleUrl -Update $item
+        if ($item.PSObject.Properties.Name -contains 'ArticleUrl') {
+            $item.ArticleUrl = $article
+        } else {
+            Add-Member -InputObject $item -MemberType NoteProperty -Name 'ArticleUrl' -Value $article -Force
+        }
+    }
+
     return @($results)
 }
 

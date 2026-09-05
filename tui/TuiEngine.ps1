@@ -135,7 +135,7 @@ function Start-FedTUI {
 
                         # Offered before installing, not after, since the point of
                         # reading about an update is to decide whether to take it.
-                        $article = Get-FedUpdateArticleUrl -Update $u
+                        $article = $u.ArticleUrl
                         if ($article) {
                             Write-Host "   `e[90m$article`e[0m"
                         } else {
