@@ -65,6 +65,30 @@ function New-FedTransaction {
         [string]$Description
     )
 
+    # Which settings this installation has already written the original of. The
+    # first time a setting is touched its original has to be recorded whether or
+    # not it needs changing, because a machine can already be sitting at the
+    # values this application would apply, and finding nothing to change is not
+    # the same as having nothing worth remembering. Recording only when
+    # something changed left such a machine with no record of its own state at
+    # all, and an uninstall with nothing to put back.
+    #
+    # Read once here rather than per setting, so a transaction costs one pass
+    # over a record that now holds one entry per setting.
+    $known = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($t in @(Get-FedLedger)) {
+        foreach ($c in @($t.Changes)) {
+            $k = switch ($c.Type) {
+                "Registry"      { "reg|$($c.KeyPath)|$($c.ValueName)" }
+                "Service"       { "svc|$($c.ServiceName)" }
+                "ScheduledTask" { "task|$($c.TaskPath)|$($c.TaskName)" }
+                "File"          { "file|$($c.OriginalPath)" }
+                Default         { $null }
+            }
+            if ($k) { [void]$known.Add($k) }
+        }
+    }
+
     $txId = "tx-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff")
     $tx = [PSCustomObject]@{
         Id          = $txId
@@ -72,8 +96,34 @@ function New-FedTransaction {
         Description = $Description
         Status      = "Draft"
         Changes     = [System.Collections.Generic.List[PSObject]]::new()
+        KnownStates = $known
     }
     return $tx
+}
+
+function Test-FedStateAlreadyRecorded {
+    <#
+    .SYNOPSIS
+        Whether this installation has already written down what a setting was.
+    .DESCRIPTION
+        A setting's original is recorded the first time this application touches
+        it and never again. Everything after that is either the same value, which
+        is worth nothing, or a genuine change, which is recorded as one.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Transaction,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if ($null -eq $Transaction.PSObject.Properties['KnownStates']) { return $false }
+    if ($Transaction.KnownStates.Contains($Key)) { return $true }
+    # Recorded within this same transaction counts too.
+    [void]$Transaction.KnownStates.Add($Key)
+    return $false
 }
 
 function Record-FedRegistryChange {
@@ -150,10 +200,14 @@ function Record-FedRegistryChange {
     # to undo and nothing to record. Writing it down regardless is what grew the
     # record by ten entries every quarter of an hour for as long as the
     # application stayed installed, all of them describing the same few settings.
-    if ($existed -and $origValue -eq $NewValue -and
+    $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "reg|$KeyPath|$ValueName"
+    if ($recorded -and $existed -and $origValue -eq $NewValue -and
         ([string]::IsNullOrWhiteSpace($origType) -or $origType -eq $ValueType)) {
-        Write-FedLog "Registry [$KeyPath] '$ValueName' is already '$NewValue'. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+        Write-FedLog "Registry [$KeyPath] '$ValueName' is already '$NewValue' and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
         return
+    }
+    if (-not $recorded) {
+        Write-FedLog "Recording what [$KeyPath] '$ValueName' was before this was applied: $(if ($existed) { "'$origValue'" } else { 'not set' })." -Level "INFO" -Component "Rollback"
     }
 
     $change = [PSCustomObject]@{
@@ -220,9 +274,13 @@ function Record-FedServiceChange {
     }
 
     # Already set the way it is being asked for, so nothing is being changed.
-    if ($service -and $origStartType -eq $NewStartType) {
-        Write-FedLog "Service '$ServiceName' is already $NewStartType. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+    $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "svc|$ServiceName"
+    if ($recorded -and $service -and $origStartType -eq $NewStartType) {
+        Write-FedLog "Service '$ServiceName' is already $NewStartType and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
         return
+    }
+    if (-not $recorded) {
+        Write-FedLog "Recording what service '$ServiceName' was before this was applied: $origStartType, $origStatus." -Level "INFO" -Component "Rollback"
     }
 
     $change = [PSCustomObject]@{
@@ -291,9 +349,13 @@ function Record-FedTaskChange {
     # asked for is not being changed.
     $alreadyInState = ($NewState -eq "Disable" -and $origState -eq "Disabled") -or
                       ($NewState -eq "Enable"  -and $origState -eq "Ready")
-    if ($task -and $alreadyInState) {
-        Write-FedLog "Scheduled task '$TaskPath$TaskName' is already $origState. Nothing changed, so nothing was recorded." -Level "INFO" -Component "Rollback"
+    $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "task|$TaskPath|$TaskName"
+    if ($recorded -and $task -and $alreadyInState) {
+        Write-FedLog "Scheduled task '$TaskPath$TaskName' is already $origState and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
         return
+    }
+    if (-not $recorded) {
+        Write-FedLog "Recording what scheduled task '$TaskPath$TaskName' was before this was applied: $origState." -Level "INFO" -Component "Rollback"
     }
 
     $change = [PSCustomObject]@{
@@ -392,6 +454,10 @@ function Commit-FedTransaction {
     }
 
     $Transaction.Status = "Committed"
+    # A working field, not part of the record.
+    if ($Transaction.PSObject.Properties['KnownStates']) {
+        $Transaction.PSObject.Properties.Remove('KnownStates')
+    }
     $ledger = @(Get-FedLedger)
     $ledger += $Transaction
     Save-FedLedger -Ledger $ledger

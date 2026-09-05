@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.29] - 2026-09-05
+
+### Fixed
+
+- **A Machine Already Holding These Settings Had Nothing Recorded About It (`core/RollbackEngine.ps1`)**:
+  - The previous release stopped writing down a setting that was found already holding the value being applied, on the grounds that nothing had been changed. That is true of the change and false of the setting. A machine can already be sitting at these values, from an earlier installation of this application or from the person having set them by hand, and on such a machine the first run found nothing to change and therefore recorded nothing at all. There was then no record of what the machine had looked like, and an uninstall offering to put everything back had nothing to put back.
+  - What a setting was is now written down the first time this installation touches it, whether or not it needs changing. After that it is not written down again, because the answer does not change and the record exists. A setting that genuinely moves later is still recorded as the change it is.
+  - Whether a setting has been written down before is now read once for each run rather than once per setting, so a run costs a single pass over a record that holds one entry per setting.
+
+---
+
 ## [1.0.28] - 2026-09-05
 
 ### Fixed
