@@ -231,10 +231,30 @@ function Start-FedDetachedRemoval {
     $targets = @($Path | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
     if ($targets.Count -eq 0) { return $true }
 
-    $quoted = ($targets | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ","
+    # Remove what can be removed now. Almost always that is everything: a
+    # PowerShell script is read into memory rather than held open, so an
+    # uninstall is not standing on the files it is deleting. Waiting was the
+    # whole problem. The wait was on this process, and when the uninstall is run
+    # from somebody's own terminal this process is that terminal, which does not
+    # exit. So the files stayed, the uninstall said they were gone, and running
+    # it again found the installation still there and said the same thing again.
+    $remaining = @()
+    foreach ($target in $targets) {
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            if (-not (Test-Path -LiteralPath $target)) { break }
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $target) { Start-Sleep -Milliseconds 250 }
+        }
+        if (Test-Path -LiteralPath $target) { $remaining += $target }
+    }
+
+    if ($remaining.Count -eq 0) { return $true }
+
+    # Whatever is genuinely still held, a detached retry keeps at for a minute.
+    # It waits on nothing, because there is nothing worth waiting for.
+    $quoted = ($remaining | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ","
 
     $waiter = @"
-try { Wait-Process -Id $PID -Timeout 120 -ErrorAction SilentlyContinue } catch { }
 Start-Sleep -Milliseconds 750
 foreach (`$target in @($quoted)) {
     for (`$attempt = 0; `$attempt -lt 12; `$attempt++) {
@@ -434,9 +454,34 @@ function Copy-FedPayload {
         New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     }
 
+    # The source of this application is a repository, and a repository carries a
+    # great deal that belongs to the people writing it rather than to the people
+    # running it. A licence, a changelog, a contributing guide, a security
+    # policy, the workflows that build it and the files telling git how to treat
+    # them are all part of making the thing, not part of the thing. Copying them
+    # onto somebody's machine puts developer paperwork in their program folder
+    # and leaves them to wonder what it is doing there.
+    $notPartOfTheApplication = @(
+        ".git", ".github", ".gitattributes", ".gitignore", ".gitmodules",
+        ".editorconfig", ".vscode", ".idea",
+        "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "README.md", "LICENSE",
+        "audit", "tests", "docs", "archive"
+    )
+
     foreach ($item in Get-ChildItem -Path $Source -Force) {
+        # An upgrade must not disturb configuration, logs, the ledger or the
+        # rollback snapshots, so the data directory is never overwritten.
         if ($item.PSIsContainer -and $item.Name -eq "data") { continue }
+        if ($notPartOfTheApplication -contains $item.Name) { continue }
         Copy-Item -Path $item.FullName -Destination $Destination -Recurse -Force
+    }
+
+    # An upgrade from a version that shipped them should not leave them behind.
+    foreach ($leftover in $notPartOfTheApplication) {
+        $stale = Join-Path $Destination $leftover
+        if (Test-Path -LiteralPath $stale) {
+            Remove-Item -LiteralPath $stale -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -566,17 +611,22 @@ if ($Uninstall) {
     }
 
     # Step 7: Remove the application itself, including the desktop interface's
-    # browser profile, which lives outside the installation directory. This
-    # cannot be done from inside the directory being deleted, so it is handed
-    # to a detached process that waits for this one to exit.
+    # browser profile, which lives outside the installation directory.
     $webViewDir = Join-Path $env:LOCALAPPDATA "FedUpDate"
     $removalTargets = @($scriptDir, $webViewDir)
 
-    if (Start-FedDetachedRemoval -Path $removalTargets) {
-        Write-Host "[OK] Application files are removed as this process exits." -ForegroundColor Green
+    [void](Start-FedDetachedRemoval -Path $removalTargets)
+
+    # Said after looking, not before. This used to announce the removal on the
+    # strength of having asked for one, while the files were still there and
+    # stayed there, so running the uninstall again found the application again
+    # and announced it again.
+    $stillThere = @($removalTargets | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    if ($stillThere.Count -eq 0) {
+        Write-Host "[OK] Application files removed." -ForegroundColor Green
     } else {
-        Write-Host "[WARN] Could not remove the following. Delete them by hand:" -ForegroundColor Yellow
-        foreach ($t in $removalTargets) { Write-Host "         $t" -ForegroundColor Yellow }
+        Write-Host "[WARN] These are still in use and will be removed shortly. If they remain, delete them by hand:" -ForegroundColor Yellow
+        foreach ($t in $stillThere) { Write-Host "         $t" -ForegroundColor Yellow }
     }
 
     Write-Host "`nFedUpDate uninstalled." -ForegroundColor Green

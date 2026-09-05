@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.31] - 2026-09-06
+
+### Fixed
+
+- **Uninstalling Did Not Remove The Application (`install.ps1`)**:
+  - The removal of the installed files was handed to a second process told to wait for the uninstalling process to finish first. Run the way anybody runs it, by typing the command into their own terminal, the uninstalling process is that terminal, and a terminal does not finish because somebody typed a command into it. So the second process sat waiting for up to two minutes on something that was never going to happen, while the uninstall announced that the files were removed and returned to the prompt with every one of them still there. Running it again found the installation again and announced the same thing again, indefinitely.
+  - The files are removed there and then, by the uninstall itself. A script is read into memory rather than held open, so an uninstall is not standing on what it is deleting and there was never a reason to defer it. Anything genuinely still in use is handed to a retry that waits for nothing, and a removal with nothing left over starts no second process at all.
+  - What is reported is what was found afterwards rather than what was asked for. The line claiming the files were removed was printed on the strength of having requested a removal, which is how it came to be printed eight times over an application that was still installed.
+
+- **The Installer Put The Repository On The Machine Instead Of The Application (`install.ps1`)**:
+  - Everything in the source was copied to the installation directory except the data folder. That meant a licence, a changelog, a contributing guide, a security policy, a readme, the workflow definitions, the files telling git what to ignore, and the development history itself, all landing in somebody's program folder. None of it is the application. It is the paperwork of making the application, and it left people looking at a folder full of things with no explanation for why they were on their computer.
+  - What is installed is the application: the interfaces, the engine, the assets, the entry points and the installer itself, which the uninstall and the in place update both need. An upgrade also removes what an earlier version left behind, so a machine that already has the clutter is cleared by the next update rather than keeping it forever.
+
+---
+
 ## [1.0.30] - 2026-09-06
 
 ### Added
