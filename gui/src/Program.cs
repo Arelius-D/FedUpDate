@@ -283,7 +283,8 @@ namespace FedUpDate.UI
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + scriptPath + "\" -Headless",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + scriptPath + "\" -Headless -ParentPid "
+                                + Process.GetCurrentProcess().Id,
                     WindowStyle = ProcessWindowStyle.Hidden,
                     CreateNoWindow = true,
                     UseShellExecute = false

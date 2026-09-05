@@ -8,7 +8,14 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [switch]$Headless
+    [switch]$Headless,
+
+    # The window this server exists to serve. It closes its own server when it
+    # shuts down cleanly, but a window that is killed rather than closed never
+    # gets to do that, and the server was then left running with nothing to
+    # serve. Knowing which process it belongs to lets it notice and stop.
+    [Parameter()]
+    [int]$ParentPid = 0
 )
 
 $port = 58100
@@ -309,7 +316,13 @@ try {
         try {
             $contextTask = $listener.GetContextAsync()
             while (-not $contextTask.AsyncWaitHandle.WaitOne(200)) {
-                # Non-blocking wait loop allows Ctrl+C to terminate immediately
+                # Non-blocking wait loop allows Ctrl+C to terminate immediately.
+                # It is also where a server with nothing left to serve notices.
+                if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) {
+                    Write-FedLog "The window this server belongs to has gone, so the server is stopping." -Level "INFO" -Component "GUI"
+                    $listener.Stop()
+                    return
+                }
             }
             $context = $contextTask.GetAwaiter().GetResult()
             $req = $context.Request

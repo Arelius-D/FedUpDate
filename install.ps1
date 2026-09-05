@@ -732,6 +732,29 @@ if ($wshShell) {
     }
 }
 
+# Updating from inside the desktop window closes that window, because the file it
+# is running from has to be writable for the new one to be compiled into it.
+# Nothing put it back, so an update started from the interface ended with the
+# interface gone and no sign of why. What was closed to do the work is reopened
+# once the work is done. A run that closed nothing opens nothing.
+if ($global:FedUiWasRunning) {
+    $vbsLauncher = Join-Path $Root "fedupdate-gui.vbs"
+    $uiExe = Join-Path $Root "gui\bin\FedUpDate.UI.exe"
+    try {
+        if (Test-Path $vbsLauncher) {
+            Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsLauncher`"" -ErrorAction Stop
+            Write-Host "[OK] Reopened the desktop window that was closed to update it." -ForegroundColor Green
+        } elseif (Test-Path $uiExe) {
+            Start-Process -FilePath $uiExe -ErrorAction Stop
+            Write-Host "[OK] Reopened the desktop window that was closed to update it." -ForegroundColor Green
+        } else {
+            Write-Host "[WARN] The desktop window was closed to update it and could not be reopened. Start it from the shortcut." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[WARN] The desktop window was closed to update it and could not be reopened: $_" -ForegroundColor Yellow
+    }
+}
+
 Write-Host "`nInstallation Complete! Available commands:" -ForegroundColor Green
 Write-Host "  fedupdate              (Launches interactive TUI)" -ForegroundColor White
 Write-Host "  fedupdate gui          (Launches modern Desktop GUI with 1 clean window)" -ForegroundColor White

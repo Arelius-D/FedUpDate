@@ -115,10 +115,17 @@ if (-not $wpfDir) {
 Write-Host "[BUILD] Detected C# Compiler: $cscExe" -ForegroundColor DarkCyan
 Write-Host "[BUILD] Detected WPF Reference Path: $wpfDir" -ForegroundColor DarkCyan
 
-# Stop running instances to release file locks
-Write-Host "[BUILD] Stopping any running UI instances..." -ForegroundColor Cyan
-Stop-Process -Name "FedUpDate.UI" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 300
+# Stop running instances to release file locks. Whether anything was actually
+# running is recorded, because a window closed here to let the compiler write to
+# the file is a window somebody had open, and it is the caller's job to put it
+# back. A build with nothing running has nothing to put back.
+$runningUi = @(Get-Process -Name "FedUpDate.UI" -ErrorAction SilentlyContinue)
+$global:FedUiWasRunning = $runningUi.Count -gt 0
+if ($global:FedUiWasRunning) {
+    Write-Host "[BUILD] Stopping the running UI to release its file lock..." -ForegroundColor Cyan
+    Stop-Process -Name "FedUpDate.UI" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
+}
 
 $refAssemblies = @(
     (Join-Path $wpfDir "PresentationFramework.dll"),

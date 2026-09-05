@@ -5,6 +5,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.24] - 2026-09-05
+
+### Fixed
+
+- **Updating From Inside The Desktop Window Left No Desktop Window (`gui/bin/build.ps1`, `install.ps1`)**:
+  - The desktop interface is compiled on the machine it runs on, and the file it runs from has to be writable for a new one to be written into it. So updating from within the window closes that window, deliberately, part way through. Nothing opened it again. An update started from Settings ended with the interface gone, no message, and no indication that this was intended rather than a crash, since the message saying the update had finished was written to a window that had already been closed to make the update possible.
+  - What is closed to do the work is opened again once the work is done, through the launcher that shows no terminal, exactly as a shortcut would. An update run from a terminal with nothing open still opens nothing, because putting back a window that was never there is not the same act.
+
+- **Closing The Window Left Its Server Running (`gui/Server.ps1`, `gui/src/Program.cs`)**:
+  - The interface runs a small local server for its own use and stops it on the way out. A window that is killed rather than closed never reaches that point, and updating kills the window, so every update from inside the interface left a server behind with nothing to serve. They accumulated quietly, one per update, invisible in any interface and outliving every session that created them.
+  - The server is now told which window it belongs to and stops when that window is gone, however it went. A server started on its own, without a window, is left alone.
+
+---
+
 ## [1.0.23] - 2026-09-04
 
 ### Added
