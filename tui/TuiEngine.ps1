@@ -130,7 +130,20 @@ function Start-FedTUI {
                     Write-Host " `e[32mNo pending Windows OS updates.`e[0m"
                 } else {
                     foreach ($u in $lastScan.OSUpdates) {
-                        Write-Host " - `e[36m$($u.KB)`e[0m: $($u.Title) [$($u.SizeMB) MB]"
+                        $label = if ([string]$u.KB -match '^KB\d+$') { [string]$u.KB } else { "no article number" }
+                        Write-Host " - `e[36m$label`e[0m: $($u.Title) [$($u.SizeMB) MB]"
+
+                        # Offered before installing, not after, since the point of
+                        # reading about an update is to decide whether to take it.
+                        $article = Get-FedUpdateArticleUrl -Update $u
+                        if ($article) {
+                            Write-Host "   `e[90m$article`e[0m"
+                        } else {
+                            Write-Host "   `e[90m$(Get-FedUpdateArticleNote -Update $u)`e[0m"
+                        }
+                        if (@($u.BundledKBs).Count -gt 0) {
+                            Write-Host "   `e[90mCarries $((@($u.BundledKBs)) -join ', '), described in the article above.`e[0m"
+                        }
                     }
                 }
 

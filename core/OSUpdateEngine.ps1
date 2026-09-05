@@ -154,6 +154,96 @@ function Invoke-FedWithUpdateService {
     }
 }
 
+function Get-FedUpdateArticleUrl {
+    <#
+    .SYNOPSIS
+        Where an update can be read about before it is installed, or nothing.
+    .DESCRIPTION
+        Preference goes to the address the update carries, since that is
+        Microsoft's own answer for that specific update. Failing that, an update
+        with an article number can be reached through the article redirect.
+
+        An update with neither gets nothing. Most updates have an article, but
+        not all of them do, and driver updates generally have no article number
+        at all. Offering a link that leads to a missing page is worse than
+        offering none, because it reads as though the reading exists.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Update
+    )
+
+    $carried = [string]$Update.SupportUrl
+    if (-not [string]::IsNullOrWhiteSpace($carried)) {
+        # Some are recorded in an older form that still resolves, and some are
+        # recorded without a scheme. Neither is worth rewriting beyond this.
+        if ($carried -notmatch '^https?://') { $carried = "https://$carried" }
+        return (Remove-FedUrlLocale -Url $carried)
+    }
+
+    if ([string]$Update.KB -match '^KB(\d+)$') {
+        # Deliberately without a language. Microsoft serves this address in the
+        # reader's own language, and naming one here would hand every reader
+        # whichever language this was written in.
+        return "https://support.microsoft.com/help/$($Matches[1])"
+    }
+
+    return $null
+}
+
+function Remove-FedUrlLocale {
+    <#
+    .SYNOPSIS
+        Drops a language from a Microsoft support address.
+    .DESCRIPTION
+        Microsoft records these addresses with a language in them, and that
+        language is whichever one the metadata was written in, not the one the
+        person reading it uses. The site serves the reader's own language when
+        no language is named, so removing it is what lets a Swedish reader get
+        a Swedish article instead of an English one.
+
+        Only Microsoft's own addresses are touched. A hardware maker's address
+        is left exactly as given, because nothing here knows how their site is
+        arranged and a guess would break the link.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    if ($Url -notmatch '^https?://[^/]*microsoft\.com/') { return $Url }
+
+    # A language tag is two letters, optionally followed by a region or script,
+    # sitting directly after the host: /en-us/, /sv-se/, /pt-br/, /zh-hans/.
+    return [regex]::Replace($Url, '^(https?://[^/]+)/[a-z]{2}(-[a-z]{2,4})?/', '$1/', 'IgnoreCase')
+}
+
+function Get-FedUpdateArticleNote {
+    <#
+    .SYNOPSIS
+        Why an update has nothing to read, when it has nothing to read.
+    .DESCRIPTION
+        There is more than one reason, and they mean different things. A driver
+        update is documented by whoever made the hardware, not by Microsoft. A
+        component that only ever ships inside another update is described in the
+        article of the update carrying it. Saying nothing is published, flatly,
+        would suggest the information does not exist when it usually does.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Update
+    )
+
+    if ($Update.IsDriver) {
+        return "Driver updates are documented by the hardware maker, not by Microsoft."
+    }
+
+    return "Microsoft publishes no article for this one. Components that only ship inside another update are described in that update's article."
+}
+
 function Get-FedOSScanCacheFile {
     return Join-Path (Get-FedDataDirectory) "os_scan_cache.json"
 }
@@ -341,6 +431,41 @@ function Get-FedOSUpdates {
                             if ($u.Title -match "KB(\d+)") { $kb = "KB" + $matches[1] } else { $kb = "N/A" }
                         }
                         $cats = @($u.Categories | ForEach-Object { $_.Name })
+
+                        # Where Microsoft says to read about this update. Taken
+                        # from the update itself rather than assembled from its
+                        # article number, because not every update has an
+                        # article and a link built from a number that has none
+                        # sends people to a page that does not exist.
+                        $support = ""
+                        try { $support = [string]$u.SupportUrl } catch { }
+                        if ([string]::IsNullOrWhiteSpace($support)) {
+                            try {
+                                if ($null -ne $u.MoreInfoUrls -and $u.MoreInfoUrls.Count -gt 0) {
+                                    $support = [string]$u.MoreInfoUrls.Item(0)
+                                }
+                            } catch { }
+                        }
+
+                        # An update can carry others inside it. A servicing
+                        # stack update in particular is never shipped on its own
+                        # and has no article of its own, because it is described
+                        # inside the article of whatever is carrying it. Naming
+                        # them is the difference between one line and knowing
+                        # what is actually about to be installed.
+                        $bundled = @()
+                        try {
+                            if ($null -ne $u.BundledUpdates) {
+                                foreach ($b in $u.BundledUpdates) {
+                                    $bkb = "KB" + ($b.KBArticleIDs | Select-Object -First 1)
+                                    if ($bkb -eq "KB") {
+                                        if ($b.Title -match "KB(\d+)") { $bkb = "KB" + $Matches[1] } else { $bkb = $null }
+                                    }
+                                    if ($bkb -and $bkb -ne $kb -and $bundled -notcontains $bkb) { $bundled += $bkb }
+                                }
+                            }
+                        } catch { }
+
                         $items += [PSCustomObject]@{
                             Id             = $u.Identity.UpdateID
                             Title          = $u.Title
@@ -350,6 +475,8 @@ function Get-FedOSUpdates {
                             IsDriver       = ($cats -contains "Drivers")
                             IsDefender     = ($u.Title -match "Defender|Antivirus|Security Intelligence")
                             RebootRequired = $u.RebootRequired
+                            SupportUrl     = $support
+                            BundledKBs     = $bundled
                         }
                     }
                 }

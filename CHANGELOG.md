@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.23] - 2026-09-04
+
+### Added
+
+- **Every Pending Windows Update Is Offered Its Own Reading Before It Is Installed (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`, `tui/TuiEngine.ps1`)**:
+  - A pending update was a title, an article number and a size, which is enough to know that something is about to change and nothing about what. The text interface now prints the address of Microsoft's article for each pending update, so the decision to install can be made after reading rather than before.
+  - The address is taken from the update itself, since the Update Agent records where Microsoft documents each one. Only when an update carries no address of its own is the article reached through its article number. Building an address from a number is a guess, and it is used only where there is nothing better.
+  - An update with nothing to read is told apart from an update whose reading was not found. A driver update carries no Microsoft article because the hardware maker documents it, and that is what is said. Anything else without an article is described in the article of whatever update carries it, and that is said instead. Neither is presented as a missing page.
+  - The address never names a language. Microsoft serves these articles in the reader's own language when none is named, so a reader in Sweden reaches the Swedish article and a reader anywhere else reaches theirs. Where Microsoft's own records name a language, which is whichever one the record happened to be written in, it is removed. A hardware maker's address is passed through untouched, since nothing here knows how their site is arranged.
+
+- **An Update Names What It Carries Inside It (`core/OSUpdateEngine.ps1`, `tui/TuiEngine.ps1`)**:
+  - A cumulative update is not one thing. It carries components that are never shipped separately and have no article of their own, the servicing stack update being the usual case, and those were installed unannounced because only the outermost update was ever listed. The components an update carries are now named beside it, so what is about to be installed is stated rather than implied by a single line.
+
+---
+
 ## [1.0.22] - 2026-09-04
 
 ### Fixed
