@@ -441,9 +441,21 @@ function Invoke-FedGuiBuild {
 
 function Copy-FedPayload {
     <#
-        Copies payload files into the install root. The data directory is left
-        untouched so that upgrades preserve configuration, logs, the state
-        ledger, and rollback snapshots.
+        Copies the application onto the machine. Not the repository it is kept
+        in, and not everything that repository happens to contain.
+
+        The source is a working tree: a licence, a changelog, a contributing
+        guide, a security policy, workflow definitions, the artwork the readme
+        uses, screenshots for the project page, and icons rendered at every size
+        any platform might one day want. None of that runs. Copying all of it
+        put several megabytes of pictures and developer paperwork in somebody's
+        program folder and left them to wonder what any of it was for.
+
+        So this names what is needed instead of naming what is not. Anything the
+        application does not read at runtime does not travel.
+
+        The data directory is never touched, so an upgrade keeps configuration,
+        logs, the ledger and the rollback snapshots.
     #>
     param(
         [string]$Source,
@@ -454,33 +466,84 @@ function Copy-FedPayload {
         New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     }
 
-    # The source of this application is a repository, and a repository carries a
-    # great deal that belongs to the people writing it rather than to the people
-    # running it. A licence, a changelog, a contributing guide, a security
-    # policy, the workflows that build it and the files telling git how to treat
-    # them are all part of making the thing, not part of the thing. Copying them
-    # onto somebody's machine puts developer paperwork in their program folder
-    # and leaves them to wonder what it is doing there.
-    $notPartOfTheApplication = @(
+    # The entry points, and the installer itself, which the uninstall and the
+    # in place update both re-run.
+    $files = @("fedupdate.ps1", "fedupdate.cmd", "fedupdate-gui.vbs", "install.ps1")
+
+    # The engine and the two text based interfaces.
+    $folders = @("core", "tui")
+
+    # Every asset the running application actually reads. Each one is referenced
+    # from the interface, the host or the installer; nothing else is.
+    $assets = @(
+        "assets\app\splash-512.png",      # the window's own splash
+        "assets\app\titlebar-24.png",     # title bar, at each display scale
+        "assets\app\titlebar-48.png",
+        "assets\app\titlebar-96.png",
+        "assets\desktop\app.ico",         # the icon on the executable and the shortcuts
+        "assets\web\favicon.ico",         # served by the interface
+        "assets\web\apple-touch-icon.png" # referenced by the interface's markup
+    )
+
+    foreach ($f in $files) {
+        $from = Join-Path $Source $f
+        if (Test-Path $from) { Copy-Item -Path $from -Destination $Destination -Force }
+    }
+
+    foreach ($d in $folders) {
+        $from = Join-Path $Source $d
+        if (Test-Path $from) { Copy-Item -Path $from -Destination $Destination -Recurse -Force }
+    }
+
+    # The interface, without the build scripts' own working files.
+    $guiFrom = Join-Path $Source "gui"
+    if (Test-Path $guiFrom) {
+        $guiTo = Join-Path $Destination "gui"
+        if (-not (Test-Path $guiTo)) { New-Item -ItemType Directory -Path $guiTo -Force | Out-Null }
+        foreach ($item in Get-ChildItem -Path $guiFrom -Force) {
+            # bin holds the compiled window and the libraries it needs, which are
+            # produced on this machine rather than carried here.
+            if ($item.PSIsContainer -and $item.Name -eq "bin") { continue }
+            Copy-Item -Path $item.FullName -Destination $guiTo -Recurse -Force
+        }
+        # The build scripts have to travel, because an update recompiles.
+        $binFrom = Join-Path $guiFrom "bin"
+        $binTo = Join-Path $guiTo "bin"
+        if (Test-Path $binFrom) {
+            if (-not (Test-Path $binTo)) { New-Item -ItemType Directory -Path $binTo -Force | Out-Null }
+            foreach ($b in Get-ChildItem -Path $binFrom -Filter "*.ps1" -File) {
+                Copy-Item -Path $b.FullName -Destination $binTo -Force
+            }
+        }
+    }
+
+    foreach ($a in $assets) {
+        $from = Join-Path $Source $a
+        if (-not (Test-Path $from)) { continue }
+        $to = Join-Path $Destination $a
+        $toDir = Split-Path -Parent $to
+        if (-not (Test-Path $toDir)) { New-Item -ItemType Directory -Path $toDir -Force | Out-Null }
+        Copy-Item -Path $from -Destination $to -Force
+    }
+
+    # An upgrade from a version that carried all of it should not leave it
+    # behind, so what is no longer part of the application is cleared out.
+    $noLongerShipped = @(
         ".git", ".github", ".gitattributes", ".gitignore", ".gitmodules",
         ".editorconfig", ".vscode", ".idea",
         "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "README.md", "LICENSE",
-        "audit", "tests", "docs", "archive"
+        "audit", "tests", "docs", "archive",
+        "assets\master.png", "assets\readme", "assets\screenshots",
+        "assets\desktop\hicolor", "assets\desktop\iconset",
+        "assets\app\splash-1024.png", "assets\app\titlebar-16.png",
+        "assets\app\titlebar-32.png", "assets\app\titlebar-64.png",
+        "assets\web\icon-96.png", "assets\web\icon-192.png", "assets\web\icon-512.png",
+        "assets\web\icon-maskable-192.png", "assets\web\icon-maskable-512.png"
     )
-
-    foreach ($item in Get-ChildItem -Path $Source -Force) {
-        # An upgrade must not disturb configuration, logs, the ledger or the
-        # rollback snapshots, so the data directory is never overwritten.
-        if ($item.PSIsContainer -and $item.Name -eq "data") { continue }
-        if ($notPartOfTheApplication -contains $item.Name) { continue }
-        Copy-Item -Path $item.FullName -Destination $Destination -Recurse -Force
-    }
-
-    # An upgrade from a version that shipped them should not leave them behind.
-    foreach ($leftover in $notPartOfTheApplication) {
-        $stale = Join-Path $Destination $leftover
-        if (Test-Path -LiteralPath $stale) {
-            Remove-Item -LiteralPath $stale -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($stale in $noLongerShipped) {
+        $path = Join-Path $Destination $stale
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -682,6 +745,24 @@ try {
         Copy-FedPayload -Source $payloadRoot -Destination $targetRoot
         $scriptDir = $targetRoot
         Write-Host "[OK] Files installed." -ForegroundColor Green
+
+        # The version lives in the changelog, which is not shipped, so it is
+        # read here while the source is still in front of us and written onto
+        # the installation. After this the application carries its own version.
+        $payloadChangelog = Join-Path $payloadRoot "CHANGELOG.md"
+        if (Test-Path $payloadChangelog) {
+            foreach ($line in (Get-Content -Path $payloadChangelog)) {
+                if ($line -match '^##\s*\[([^\]]+)\]') {
+                    $stampedVersion = $Matches[1].Trim()
+                    Set-Content -Path (Join-Path $targetRoot "version.txt") -Value $stampedVersion -Encoding UTF8
+                    Write-Host "[OK] Installed version $stampedVersion." -ForegroundColor Green
+                    break
+                }
+            }
+        }
+        if (-not (Test-Path (Join-Path $targetRoot "version.txt"))) {
+            Write-Host "[WARN] Could not determine the version being installed. The application will not be able to say which version it is." -ForegroundColor Yellow
+        }
 
         if (-not $SkipGuiBuild) { [void](Invoke-FedGuiBuild -Root $scriptDir) }
     }

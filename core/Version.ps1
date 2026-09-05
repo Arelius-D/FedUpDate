@@ -22,21 +22,61 @@ function Get-FedVersion {
     [CmdletBinding()]
     param()
 
-    $changelog = Join-Path (Split-Path -Parent $PSScriptRoot) "CHANGELOG.md"
-    if (-not (Test-Path $changelog)) {
-        Write-FedLog "CHANGELOG.md not found; version is unknown." -Level "WARN" -Component "Version"
-        return $null
+    $root = Split-Path -Parent $PSScriptRoot
+
+    # An installation is stamped with its version when it is installed. The
+    # changelog is where a release is written down, and it belongs to the people
+    # writing this application rather than to the people running it, so it is
+    # not shipped. Reading the version out of it meant an installation without
+    # it had no version at all, and an interface that cannot say which version
+    # it is does not finish starting.
+    $stamp = Join-Path $root "version.txt"
+    if (Test-Path $stamp) {
+        $stamped = (Get-Content -Path $stamp -Raw -ErrorAction SilentlyContinue)
+        if (-not [string]::IsNullOrWhiteSpace($stamped)) { return $stamped.Trim() }
     }
 
-    foreach ($line in (Get-Content -Path $changelog)) {
-        # Matches: ## [0.4.0-beta] - 2026-08-22
-        if ($line -match '^##\s*\[([^\]]+)\]') {
-            return $Matches[1].Trim()
+    # Run from a copy of the source rather than from an installation, the
+    # changelog is right there and is the authority.
+    $changelog = Join-Path $root "CHANGELOG.md"
+    if (Test-Path $changelog) {
+        foreach ($line in (Get-Content -Path $changelog)) {
+            # Matches: ## [0.4.0-beta] - 2026-08-22
+            if ($line -match '^##\s*\[([^\]]+)\]') {
+                return $Matches[1].Trim()
+            }
         }
     }
 
-    Write-FedLog "No version heading found in CHANGELOG.md." -Level "WARN" -Component "Version"
+    Write-FedLog "No version stamp and no changelog; version is unknown." -Level "WARN" -Component "Version"
     return $null
+}
+
+function Set-FedVersionStamp {
+    <#
+    .SYNOPSIS
+        Writes the version an installation is.
+    .DESCRIPTION
+        Called by the installer, which knows what it is installing because it
+        has the source in front of it. After that the installation carries its
+        own version and needs nothing else on disk to answer for it.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Version)) { return $false }
+    try {
+        Set-Content -Path (Join-Path $Root "version.txt") -Value $Version.Trim() -Encoding UTF8 -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 function ConvertTo-FedVersionParts {

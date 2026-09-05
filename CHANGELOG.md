@@ -5,6 +5,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.32] - 2026-09-06
+
+### Fixed
+
+- **The Interface Would Not Finish Starting Because It Could Not Say Which Version It Was (`core/Version.ps1`, `install.ps1`, `core/Engine.psm1`)**:
+  - The version was read out of the changelog. The previous release stopped shipping the changelog, correctly, since it is written for the people making this application rather than the people running it. Nothing else knew the version, so an installation had none, and the interface sat on its opening screen until a timeout let it through. Every new installation did this.
+  - An installation is stamped with its version while it is being installed, by the installer, which has the source in front of it and therefore knows. After that the application carries its own version and needs nothing else on disk to answer for it. Run from a copy of the source instead, the changelog is right there and is still the authority.
+
+- **Putting A Setting Back Created Another Restore Point Every Time (`core/RollbackEngine.ps1`)**:
+  - Windows turns some of these settings back on by itself, and putting them back is the entire point of the shield. Each of those rounds was written down as though it had discovered something, so a shield doing its job produced a growing list of restore points that all restore to the same place. Four of the five points on a fresh installation were the same scheduled task, disabled again and again.
+  - What a setting was is recorded the first time this application touches it. After that the answer cannot change, so putting a setting back where it belongs is enforcement and nothing is recorded for it. The setting is still put back, and the original written down first is still what an uninstall uses.
+
+### Changed
+
+- **Installing Copies The Application, Not The Repository It Is Kept In (`install.ps1`)**:
+  - The source of this application is a working tree, and a working tree holds a great deal that never runs: artwork the readme uses, screenshots for the project page, icons rendered at every size any platform might one day ask for, a licence, a changelog, a contributing guide, a security policy, workflow definitions. All of it was being copied onto people's machines. Several megabytes of pictures and developer paperwork sat in their program folder with nothing to explain what any of it was for.
+  - What is installed is now named rather than what is left out, so nothing added to the repository later can arrive on somebody's machine by default. The entry points, the engine, the two text interfaces, the desktop interface, and the seven pieces of artwork the running application actually reads. An installation is thirty two files rather than seventy odd, and under a megabyte rather than eight.
+  - An upgrade removes what earlier versions left behind, so a machine carrying the clutter is cleared by its next update. The data directory is not in any of the lists, which is a firmer promise than skipping it: nothing in the copy can reach configuration, logs, the ledger or the rollback snapshots at all.
+
+---
+
 ## [1.0.31] - 2026-09-06
 
 ### Fixed

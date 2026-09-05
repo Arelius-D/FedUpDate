@@ -329,9 +329,11 @@ function Record-FedRegistryChange {
     # record by ten entries every quarter of an hour for as long as the
     # application stayed installed, all of them describing the same few settings.
     $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "reg|$KeyPath|$ValueName"
-    if ($recorded -and $existed -and $origValue -eq $NewValue -and
-        ([string]::IsNullOrWhiteSpace($origType) -or $origType -eq $ValueType)) {
-        Write-FedLog "Registry [$KeyPath] '$ValueName' is already '$NewValue' and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
+    $alreadyCorrect = $existed -and $origValue -eq $NewValue -and
+                      ([string]::IsNullOrWhiteSpace($origType) -or $origType -eq $ValueType)
+
+    if ($recorded -and $alreadyCorrect) {
+        # Nothing to put back and nothing to do.
         return
     }
     if (-not $recorded) {
@@ -350,7 +352,15 @@ function Record-FedRegistryChange {
         Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     }
 
-    $Transaction.Changes.Add($change)
+    # Written down only the first time this application touches the setting.
+    # Afterwards there is nothing new to know: the original is already on record,
+    # and putting a setting back where it belongs is enforcement, not a new
+    # thing to undo. Recording every one of those turned a shield doing its job,
+    # against a Windows that keeps undoing it, into a list of restore points
+    # that all restore to the same place.
+    if (-not $recorded) {
+        $Transaction.Changes.Add($change)
+    }
 
     if ($WhatIf) {
         Write-FedLog "[WHATIF] Would set Registry [$KeyPath] '$ValueName' = '$NewValue' (was: '$origValue')" -Level "WHATIF" -Component "Rollback"
@@ -404,7 +414,6 @@ function Record-FedServiceChange {
     # Already set the way it is being asked for, so nothing is being changed.
     $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "svc|$ServiceName"
     if ($recorded -and $service -and $origStartType -eq $NewStartType) {
-        Write-FedLog "Service '$ServiceName' is already $NewStartType and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
         return
     }
     if (-not $recorded) {
@@ -420,7 +429,9 @@ function Record-FedServiceChange {
         Timestamp         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     }
 
-    $Transaction.Changes.Add($change)
+    if (-not $recorded) {
+        $Transaction.Changes.Add($change)
+    }
 
     if ($WhatIf) {
         Write-FedLog "[WHATIF] Would configure Service '$ServiceName' StartType to '$NewStartType' (was: '$origStartType')" -Level "WHATIF" -Component "Rollback"
@@ -479,7 +490,6 @@ function Record-FedTaskChange {
                       ($NewState -eq "Enable"  -and $origState -eq "Ready")
     $recorded = Test-FedStateAlreadyRecorded -Transaction $Transaction -Key "task|$TaskPath|$TaskName"
     if ($recorded -and $task -and $alreadyInState) {
-        Write-FedLog "Scheduled task '$TaskPath$TaskName' is already $origState and its original is on record. Nothing recorded." -Level "INFO" -Component "Rollback"
         return
     }
     if (-not $recorded) {
@@ -495,7 +505,11 @@ function Record-FedTaskChange {
         Timestamp     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     }
 
-    $Transaction.Changes.Add($change)
+    # Windows turns some of these back on by itself. Putting them back is the
+    # point of the shield, and it is not news about the machine.
+    if (-not $recorded) {
+        $Transaction.Changes.Add($change)
+    }
 
     if ($WhatIf) {
         Write-FedLog "[WHATIF] Would $NewState Scheduled Task '$TaskPath$TaskName' (was: '$origState')" -Level "WHATIF" -Component "Rollback"
