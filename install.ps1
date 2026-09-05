@@ -738,9 +738,13 @@ if ($wshShell) {
 # interface gone and no sign of why. What was closed to do the work is reopened
 # once the work is done. A run that closed nothing opens nothing.
 if ($global:FedUiWasRunning) {
-    $vbsLauncher = Join-Path $Root "fedupdate-gui.vbs"
-    $uiExe = Join-Path $Root "gui\bin\FedUpDate.UI.exe"
     try {
+        # The install root at this point is $scriptDir. $Root is a parameter of
+        # the function that builds the interface and does not exist out here, so
+        # building a path from it threw before anything could be launched, and
+        # threw outside the guard that would have reported it.
+        $vbsLauncher = Join-Path $scriptDir "fedupdate-gui.vbs"
+        $uiExe = Join-Path $scriptDir "gui\bin\FedUpDate.UI.exe"
         if (Test-Path $vbsLauncher) {
             Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsLauncher`"" -ErrorAction Stop
             Write-Host "[OK] Reopened the desktop window that was closed to update it." -ForegroundColor Green

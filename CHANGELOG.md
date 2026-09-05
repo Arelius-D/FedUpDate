@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.26] - 2026-09-05
+
+### Fixed
+
+- **Reopening The Window After An Update Failed Before It Started (`install.ps1`)**:
+  - The step that reopens the desktop window after an update built its path from a variable belonging to a different part of the installer. Out where it ran, that variable holds nothing, so the line failed on its first instruction, before anything could be launched. It also sat outside the handling written to report exactly this, so the failure passed without a word. The window closed to be updated and stayed closed, which is the behaviour that was supposed to have been fixed.
+  - The paths are built from the install root that exists where the step runs, and building them happens inside the handling that reports a failure, so a path that cannot be built is said out loud rather than ending the run in silence.
+
+---
+
 ## [1.0.25] - 2026-09-05
 
 ### Changed
