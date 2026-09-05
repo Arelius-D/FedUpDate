@@ -591,7 +591,11 @@ function Commit-FedTransaction {
     # Writing that down anyway is what grew the ledger without bound: the shield
     # checks itself on a timer, and every check recorded the same settings again.
     if (@($Transaction.Changes).Count -eq 0) {
-        Write-FedLog "Nothing changed in transaction '$($Transaction.Id)' ($($Transaction.Description)), so nothing was recorded." -Level "INFO" -Component "Rollback"
+        # Settings may well have been changed. What there was none of is anything
+        # new worth writing down, because the originals are already on record.
+        # Saying nothing changed was flatly untrue on a run that had just written
+        # six registry values and reconfigured a service.
+        Write-FedLog "No new original to record for '$($Transaction.Description)'; the ones already written down still stand." -Level "INFO" -Component "Rollback"
         return $true
     }
 

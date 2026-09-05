@@ -592,10 +592,16 @@ async function loadInitialData() {
     }
   } catch (err) {}
 
-  // Awaited so the caller knows when the first audit is genuinely done. The
-  // ledger is not part of that and loads alongside.
+  // Opening the window is not a request to go and check the machine. This used
+  // to start a full audit here, every launch, so a log read afterwards showed a
+  // Windows Update scan, a WinGet scan and a Store check that nobody had asked
+  // for, indistinguishable from ones somebody had. An application whose whole
+  // argument is that the machine is the person's own does not help itself by
+  // going through it uninvited.
+  //
+  // What is already known is shown instead, with its age, and Scan System is
+  // there for when an answer is actually wanted.
   loadLedger();
-  await triggerScan();
 }
 
 // Trigger Deep System Scan
@@ -1182,7 +1188,16 @@ async function enforceWatchdog(isWhatIf = false) {
       body: JSON.stringify({ whatif: isWhatIf })
     });
     setDockProgress("Complete", "Anti-tamper policies enforced.", 100, false);
-    await triggerScan();
+    // Enforcing the shield says nothing about what updates are pending, so
+    // there is no reason to go looking. Only what this action actually changed
+    // is refreshed: whether the shield has drifted, and the record of it.
+    try {
+      const auditRes = await fetch(`${API_BASE}/api/watchdog/audit`);
+      const audit = await auditRes.json();
+      if (!state.scanData) state.scanData = {};
+      state.scanData.WatchdogDrifted = audit.HasDrifted;
+      updateDashboardUI();
+    } catch (e) {}
     await loadLedger();
   } catch (err) {
     setDockProgress("Error", `Enforce failed: ${err.message}`, 0, false);

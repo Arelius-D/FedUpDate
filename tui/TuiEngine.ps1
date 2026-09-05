@@ -63,6 +63,27 @@ function Start-FedTUI {
     $running = $true
     $lastScan = $null
 
+    # The text interface used to write nothing to the log at all. Somebody could
+    # open it, run an update from it and close it again, and the log would carry
+    # the update with no account of where it had been asked for. Reading that
+    # log afterwards, the work appeared to have happened by itself.
+    Write-FedLog "Text interface opened." -Level "INFO" -Component "TUI"
+
+    # What each choice is, in words, so a log says what a person chose rather
+    # than which key they pressed.
+    $menu = @{
+        "1" = "Update All"
+        "2" = "WhatIf simulation"
+        "3" = "Scan and audit the system"
+        "4" = "Anti-tamper watchdog centre"
+        "5" = "Rollback and state ledger"
+        "6" = "Task scheduler automation"
+        "7" = "Launch the desktop interface"
+        "8" = "View system logs"
+        "9" = "Version and update"
+        "Q" = "Quit"
+    }
+
     while ($running) {
         Show-FedHeader
         Show-FedStatusBar -ScanResult $lastScan
@@ -83,6 +104,10 @@ function Start-FedTUI {
 
         $choice = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
         Write-Host $choice
+
+        if ($menu.ContainsKey($choice)) {
+            Write-FedLog "Chose '$($menu[$choice])' in the text interface." -Level "INFO" -Component "TUI"
+        }
 
         switch ($choice) {
             "1" {
@@ -307,6 +332,7 @@ function Start-FedTUI {
             }
             "Q" {
                 $running = $false
+                Write-FedLog "Text interface closed." -Level "INFO" -Component "TUI"
                 Write-Host "`n`e[32mExiting FedUpDate. Stay up to date!`e[0m`n"
             }
         }

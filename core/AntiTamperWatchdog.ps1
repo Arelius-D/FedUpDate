@@ -180,6 +180,17 @@ function Enforce-FedWatchdog {
         }
     }
 
+    # An enforcement that found everything already in place used to say nothing
+    # at all, leaving several silent seconds in the log with no account of what
+    # had been looked at. Recording nothing is right; saying nothing is not.
+    $applied = @($tx.Changes).Count
+    $managed = @(Get-FedManagedState).Count
+    if ($applied -eq 0) {
+        Write-FedLog "Checked $managed setting(s). All were already as they should be." -Level "INFO" -Component "Watchdog"
+    } else {
+        Write-FedLog "Checked $managed setting(s). $applied needed putting back." -Level "INFO" -Component "Watchdog"
+    }
+
     # Commit Transaction to ledger for complete rollback capability
     Commit-FedTransaction -Transaction $tx -WhatIf:$WhatIf
 
@@ -253,6 +264,17 @@ function Install-FedWatchdogTask {
         return $false
     }
 
+    # A guard that is already registered and enabled needs nothing doing to it.
+    # This used to register unconditionally on every enforcement, and one of the
+    # triggers it wrote started a minute after registration. So each enforcement
+    # scheduled the next one a minute out, that one enforced and registered
+    # again, and the guard ran every sixty seconds for the life of the machine
+    # while reporting on each line that it runs every fifteen minutes.
+    $already = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($already -and $already.State -ne "Disabled") {
+        return $true
+    }
+
     try {
         # Registered under SYSTEM, matching the update scheduler. The task runs
         # in session 0, so the boot guard never shows a console window and never
@@ -271,7 +293,11 @@ function Install-FedWatchdogTask {
         $bootTrigger = New-ScheduledTaskTrigger -AtStartup
         $bootTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)).Repetition
 
-        $nowTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
+        # Starts one interval from now rather than one minute from now. A minute
+        # was chosen so the guard would take effect promptly, but registration
+        # happens during enforcement, so it only ever scheduled another
+        # enforcement a minute later and never stopped.
+        $nowTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($IntervalMinutes) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
 
         $trigger = @($bootTrigger, $nowTrigger)
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest

@@ -5,6 +5,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.33] - 2026-09-06
+
+### Fixed
+
+- **The Application Checked The Machine Without Being Asked (`gui/app.js`)**:
+  - Opening the desktop interface started a full audit of the machine, and enforcing the shield started another one afterwards. Neither was asked for. A person could open the window, press one button and close it again, and the log would afterwards show a Windows Update scan, a WinGet scan and a Store check, indistinguishable from ones they had actually requested. An application whose whole argument is that the machine belongs to the person using it does not help itself by going through it uninvited.
+  - Opening the window shows what is already known, with its age, and leaves the machine alone. Scan System is there for when an answer is wanted. Enforcing the shield refreshes whether the shield has drifted and nothing else, because enforcing it says nothing about what updates are pending. Every check that remains follows something a person did: asking for an elevated check, installing updates, updating packages, or rolling back.
+
+- **The Boot Guard Ran Every Minute Instead Of Every Fifteen (`core/AntiTamperWatchdog.ps1`)**:
+  - The guard registered itself on every enforcement, and one of the triggers it wrote started a minute after registration. So each enforcement scheduled another one a minute later, which enforced, which registered again, which scheduled another. It ran every sixty seconds for the life of the machine while reporting on every line that it runs every fifteen minutes.
+  - A guard already registered and enabled is left alone rather than written again, and the trigger that covers the current session starts one interval out rather than one minute out.
+
+- **An Enforcement That Changed Things Reported That Nothing Had Changed (`core/RollbackEngine.ps1`)**:
+  - A run that set six registry values and reconfigured a service finished by saying nothing had changed in it. What there was none of was anything new worth writing down, the originals being already on record. Plenty had changed. It now says what it means.
+
+- **An Enforcement Left Seconds Of Silence In The Log (`core/AntiTamperWatchdog.ps1`)**:
+  - Settings already as they should be are not recorded, which is right, but they had also stopped being mentioned, so an enforcement passed several seconds working through scheduled tasks without a word about any of it. Each enforcement now says how many settings it looked at and how many needed putting back.
+
+- **The Text Interface Wrote Nothing To The Log (`tui/TuiEngine.ps1`)**:
+  - Somebody could open it, run an update from it and close it again, and the log would carry the update with no account of where it had been asked for. Read afterwards, the work appeared to have happened by itself. Opening it, each choice made in it, and closing it are now recorded, by name rather than by keystroke.
+
+---
+
 ## [1.0.32] - 2026-09-06
 
 ### Fixed
