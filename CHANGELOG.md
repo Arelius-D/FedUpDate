@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.25] - 2026-09-05
+
+### Changed
+
+- **Updating From The Interface Says What Is About To Happen (`gui/app.js`)**:
+  - Updating closes this window part way through, because the file it runs from is replaced while it runs, and it opens again once the new version is built. None of that was said beforehand. The window simply disappeared, which reads as a crash rather than as the update working, and there was no way to tell the two apart while waiting to find out.
+  - What is going to happen is now said before it happens, and agreed to. Declining changes nothing.
+  - The message shown when the update finished asked for a restart. It was written to a window that had already been closed to make the update possible, so it could not be read, and a restart is no longer needed in any case. The only time that message can now be reached is when there was nothing to install, and it says so.
+
+---
+
 ## [1.0.24] - 2026-09-05
 
 ### Fixed

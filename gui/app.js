@@ -1555,15 +1555,29 @@ async function toggleVersionFlyout() {
 }
 
 async function runSelfUpdate() {
+  // This window is compiled on this machine, and the file it runs from has to be
+  // writable for the new one to be written into it. So updating closes this
+  // window part way through and opens it again when the work is done. Vanishing
+  // without warning reads as a crash, so it is said first and agreed to.
+  const proceed = await fedConfirm(
+    'This window closes while it updates, because the file it runs from is replaced, and opens again by itself once the new version is built. It usually takes under a minute.',
+    { title: 'Update FedUpDate?', confirmText: 'Update now' }
+  );
+  if (!proceed) return;
+
   const btn = document.getElementById('versionUpdateBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
-  setDockProgress("Updating FedUpDate", "Downloading and installing the latest release...", 30, true);
+  setDockProgress("Updating FedUpDate", "Downloading and building the new version. This window closes and reopens by itself.", 30, true);
 
   try {
     const res = await fetch(`${API_BASE}/api/self-update`, { method: 'POST' });
     const result = await res.json();
     if (result.success) {
-      setDockProgress("Update complete", "Restart FedUpDate to run the new version.", 100, false);
+      // Reached only when this window survived, which means it was already on
+      // the newest version and nothing needed rebuilding. A real update closes
+      // this window long before the answer arrives, so the old wording asked
+      // for a restart that could not be read and was no longer needed anyway.
+      setDockProgress("Already up to date", "No new version to install.", 100, false);
     } else {
       setDockProgress("Update failed", "See the logs for details.", 100, false);
     }
