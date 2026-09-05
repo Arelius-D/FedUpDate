@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The step that reopens the desktop window after an update built its path from a variable belonging to a different part of the installer. Out where it ran, that variable holds nothing, so the line failed on its first instruction, before anything could be launched. It also sat outside the handling written to report exactly this, so the failure passed without a word. The window closed to be updated and stayed closed, which is the behaviour that was supposed to have been fixed.
   - The paths are built from the install root that exists where the step runs, and building them happens inside the handling that reports a failure, so a path that cannot be built is said out loud rather than ending the run in silence.
 
+- **Reopening After An Update Brought Back The Page, Not The Application (`install.ps1`, `fedupdate-gui.vbs`)**:
+  - The application is the compiled window. It draws its own title bar, which is the point of it, and it starts the server it needs by itself. The script sitting beside it starts only that server, and a server with no window of its own is reached through a browser, which frames the page in the operating system's chrome and leaves two title bars stacked on each other. It is a different thing wearing the application's face.
+  - Reopening after an update reached for that script first. So an update ended by presenting the page inside a browser frame rather than the application, which is not what the shortcuts open and not what anybody asked for. It now opens the same file the shortcuts open, and nothing else.
+  - The launcher itself was named for the interface and did not open it either, reaching straight past the application for the server. It opens the application when it is there. Starting the server remains the fallback for a machine where the window could not be built, but it is the fallback rather than the first choice.
+
 ---
 
 ## [1.0.25] - 2026-09-05

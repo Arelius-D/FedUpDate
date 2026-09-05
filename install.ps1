@@ -739,20 +739,23 @@ if ($wshShell) {
 # once the work is done. A run that closed nothing opens nothing.
 if ($global:FedUiWasRunning) {
     try {
-        # The install root at this point is $scriptDir. $Root is a parameter of
-        # the function that builds the interface and does not exist out here, so
-        # building a path from it threw before anything could be launched, and
-        # threw outside the guard that would have reported it.
-        $vbsLauncher = Join-Path $scriptDir "fedupdate-gui.vbs"
+        # The install root at this point is $scriptDir. $Root belongs to the
+        # function that builds the interface and holds nothing out here.
+        #
+        # The application is the compiled window and nothing else. It draws its
+        # own title bar, which is the whole point of it. The script beside it
+        # starts only the server the window talks to, and a server on its own is
+        # reached through a browser, which wraps the page in the operating
+        # system's own frame and leaves two title bars stacked on each other.
+        # That is a different thing wearing the application's face, so the
+        # window is what gets opened, and the shortcuts point at the same file
+        # for the same reason.
         $uiExe = Join-Path $scriptDir "gui\bin\FedUpDate.UI.exe"
-        if (Test-Path $vbsLauncher) {
-            Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsLauncher`"" -ErrorAction Stop
-            Write-Host "[OK] Reopened the desktop window that was closed to update it." -ForegroundColor Green
-        } elseif (Test-Path $uiExe) {
+        if (Test-Path $uiExe) {
             Start-Process -FilePath $uiExe -ErrorAction Stop
             Write-Host "[OK] Reopened the desktop window that was closed to update it." -ForegroundColor Green
         } else {
-            Write-Host "[WARN] The desktop window was closed to update it and could not be reopened. Start it from the shortcut." -ForegroundColor Yellow
+            Write-Host "[WARN] The desktop window was closed to update it and the application could not be found to reopen it. Start it from the shortcut." -ForegroundColor Yellow
         }
     } catch {
         Write-Host "[WARN] The desktop window was closed to update it and could not be reopened: $_" -ForegroundColor Yellow
