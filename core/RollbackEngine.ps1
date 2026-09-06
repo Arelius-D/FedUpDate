@@ -1,6 +1,7 @@
 # ==============================================================================
 # FedUpDate Rollback & State Ledger Engine
-# Records every registry, service, task, and file change with timestamped backups
+# Reads the machine once at installation, before anything is touched, and
+# records each setting the first time it is changed, with timestamped backups
 # Allows true 100% reversible rollback of any OS settings or configurations
 # ==============================================================================
 

@@ -365,7 +365,7 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   Extended Custom Title Bar (3rem / 48px)
+   Extended Custom Title Bar (--sys-dim-titlebar-height)
    -------------------------------------------------------------------------- */
 .titlebar {
   height: var(--sys-dim-titlebar-height);

@@ -5,7 +5,7 @@
   <p><em>"Because Microsoft needs three separate corporate divisions and zero communication to update one operating system."</em></p>
 </div>
 
-[![Release](https://img.shields.io/github/v/release/Arelius-D/FedUpDate?color=%235391FE&label=release)](https://github.com/Arelius-D/FedUpDate/releases) [![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-gold.svg)](LICENSE) [![Platform](https://img.shields.io/badge/Platform-Windows_11-%230078D4.svg)](#) [![Built with](https://img.shields.io/badge/Built_with-PowerShell_%2B_C%23-%235391FE.svg)](#) [![Interfaces](https://img.shields.io/badge/Interfaces-GUI_%7C_TUI_%7C_CLI-emerald.svg)](#interfaces) [![No binaries](https://img.shields.io/badge/Binaries-none_shipped-brightgreen.svg)](#installation-zero-external-dependencies)
+[![Release](https://img.shields.io/github/v/release/Arelius-D/FedUpDate?color=%235391FE&label=release)](https://github.com/Arelius-D/FedUpDate/releases) [![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-gold.svg)](LICENSE) [![Platform](https://img.shields.io/badge/Platform-Windows_11-%230078D4.svg)](#) [![Built with](https://img.shields.io/badge/Built_with-PowerShell_%2B_C%23-%235391FE.svg)](#) [![Interfaces](https://img.shields.io/badge/Interfaces-GUI_%7C_TUI_%7C_CLI-emerald.svg)](#-interfaces) [![No binaries](https://img.shields.io/badge/Binaries-none_shipped-brightgreen.svg)](#installation-zero-external-dependencies)
 
 An ultra-lightweight, transparent, and modern Windows 11 update management suite. It unifies Windows' fragmented update engines into a single, cohesive command center while protecting user control through an active Anti-Tamper State Watchdog and a true 1-Click Rollback Engine.
 
@@ -18,13 +18,19 @@ An ultra-lightweight, transparent, and modern Windows 11 update management suite
   - **WinGet Applications Ring**: Automated detection and upgrade of third-party software, developer tools, and runtimes via `winget.exe`.
   - **Microsoft Store Sync Ring**: WMI/CIM MDM Enterprise scan method (`MDM_EnterpriseModernAppManagement_AppManagement01:UpdateScanMethod`) and Store background sync queue.
 
-- **Anti-Tamper & Policy Watchdog**:
-  - Audits and suppresses invasive Windows background update services (`wuauserv`, `DoSvc`, `UsoSvc`) and scheduled auto-reboot tasks.
-  - Includes an on-boot persistence guard (`FedUpDate-Watchdog-Enforcer`) that audits and restores your chosen policies even after major Windows patches try to revert them.
+- **Nothing Happens Until You Ask For It**:
+  - Starting any of the three interfaces starts nothing. No scan, no audit, no enforcement, no elevation prompt, no network call. Every one of those is a thing you click, and until you click it the application sits there.
 
-- **100% Reversible State Ledger & Rollback Engine**:
-  - Every registry modification, service configuration, and task change is snapshotted into `data/state_ledger.json` and timestamped `.bak` files.
-  - Full 1-Click Rollback (`fedupdate rollback` or in GUI) reverts settings cleanly back to previous states.
+- **Anti-Tamper & Policy Watchdog**:
+  - Eleven settings are managed: six Windows Update policy values, the `wuauserv` and `DoSvc` services, and three scheduled tasks Windows uses to restart scanning and reporting on its own.
+  - The audit lists all eleven with what is on the machine now and whether it matches what you asked for. Anything it was not allowed to read says so instead of being reported as absent.
+  - An on-boot persistence guard (`FedUpDate-Watchdog-Enforcer`) puts your settings back after major Windows patches revert them, and re-checks on a timer while the machine is running.
+  - Whether that guard exists, when it last ran, what it put back and when it runs next is readable in every interface without administrator rights, because the application writes down what it did rather than asking Windows about a task an ordinary session is not permitted to see.
+
+- **Reversible State Ledger & Rollback Engine**:
+  - The machine is read once, at installation, before a single setting is touched. That reading is the baseline everything else is measured against.
+  - After that, a setting is recorded the first time it is changed and not again, so the ledger stays a short list of what was actually altered instead of one entry per enforcement.
+  - Full 1-Click Rollback (`fedupdate rollback` or in the GUI) puts the machine back to the baseline, and reports what it could not put back rather than claiming it did.
 
 - **Full `-WhatIf` Simulation**:
   - Simulate update scans, installations, watchdog enforcements, and rollbacks without modifying a single byte on your system.
@@ -32,12 +38,15 @@ An ultra-lightweight, transparent, and modern Windows 11 update management suite
 - **Honest Restart Handling**:
   - A pending restart is graded, not assumed. Servicing flags and files replaced in place mean the system is waiting; an installer's temporary folder queued for deletion is routine cleanup and is reported as exactly that, with the paths named. The interfaces never demand a restart that would not change anything.
 
+- **Read Before You Install**:
+  - Every OS update that has somewhere to read about it is offered with a link to it: the address Microsoft attached to that specific update, or its knowledge base article. Links are language-neutral, so they open in whatever language your machine asks for. An update with neither, which is most drivers, is offered no link rather than a dead one.
+
 - **Update Channels & In-Place Updates**:
   - Follow published releases on the stable channel or prereleases on beta. Self-update pulls from the branch the chosen channel is cut from, so the version offered is always the version delivered.
 
 - **Triple-Interface Flexibility**:
-  - **Modern Fluent 2 Desktop GUI**: Glassmorphic Mica/Acrylic backdrops, custom 48px extended title bar, 3 glowing status rings, SettingsCards, badge pills, and a real-time docked task progress drawer with a live terminal stream.
-  - **Interactive Terminal TUI**: Fast keyboard-driven ANSI dashboard with interactive checkboxes and meters.
+  - **Modern Fluent 2 Desktop GUI**: Glassmorphic Mica/Acrylic backdrops, an extended custom title bar the window draws itself, three status rings for the three engines, SettingsCards, badge pills, and a docked task progress drawer with a live terminal stream.
+  - **Interactive Terminal TUI**: Fast keyboard-driven ANSI dashboard, one numbered menu, no mouse required.
   - **Headless CLI**: Scriptable, pipe-friendly command line for power users and automation.
 
 - **Zero Opaque Dependencies**:
@@ -56,13 +65,25 @@ irm https://raw.githubusercontent.com/Arelius-D/FedUpDate/main/install.ps1 | iex
 ```
 
 No packaged installer, no prebuilt binary. The source is downloaded, `fedupdate`
-is added to your User PATH, and Start Menu and Desktop shortcuts are created.
+is added to your User PATH and registered as a function in your PowerShell
+profile, and Start Menu and Desktop shortcuts are created.
 
 The desktop GUI is compiled on your machine during installation with the C#
 compiler that ships with Windows. The only binaries involved are Microsoft's
 WebView2 libraries, pulled from Microsoft's NuGet CDN.
 
 CLI and TUI are pure PowerShell and need no compilation.
+
+An installation is not a copy of this repository. What lands on your machine is
+the entry points, `core/`, `tui/`, `gui/` and the seven image files the running
+application actually reads: 32 files, under a megabyte, before the window is
+compiled beside them. No licence, changelog, readme, workflow files,
+screenshots or unused icon sizes travel, and anything an earlier version left
+behind is removed on the next install.
+
+Before anything is changed, the installer reads the eleven settings the shield
+manages and writes them down. That reading is what a rollback and an uninstall
+put back.
 
 ### Updating
 
@@ -83,29 +104,47 @@ in `data/config.json`:
 What is offered and what arrives always come from the same place, so an
 installation can never be told about a version it cannot get.
 
+The installed version is stamped into `version.txt` at install time. The
+changelog is not shipped, so the application does not read its own version out
+of a file that is not there.
+
 ### Uninstalling
 
 ```powershell
 fedupdate uninstall
 ```
 
-You are asked what should happen to the update settings FedUpDate applied,
-because they belong to you, not to the installer:
+The application is removed either way. The only question you are asked is what
+should happen to the Windows update settings it changed, because those belong
+to you and not to the installer:
 
-| Outcome                | Settings | Ledger                              |
-|------------------------|----------|-------------------------------------|
-| Restore defaults       | Reverted | Removed                             |
-| Keep settings          | Kept     | Saved to `Documents\FedUpDate-Backups`, so they can be reverted by hand later |
-| Keep settings, purge   | Kept     | Removed. The settings become permanent |
+| Answer | Settings | Ledger |
+|--------|----------|--------|
+| **1** Undo them and remove everything *(default)* | Put back as they were found at installation | Removed |
+| **2** Leave them, keep the record | Kept | Saved to `Documents\FedUpDate-Backups`, so they can be undone by hand later |
+| **3** Leave them, delete the record | Kept | Removed. The settings become permanent |
 
-The on-boot guard is removed in every case, so kept settings are no longer
-defended and Windows may revert them later. Unattended:
+Pressing Enter takes answer 1. The on-boot guard is removed in every case, so
+settings left in place are no longer defended and Windows may change them back.
+
+Uninstalling removes the folder, the shortcuts, the PATH entry, the profile
+function and the scheduled tasks. Removing the guard needs administrator
+rights, so an ordinary session is asked for them once. If that is refused, the
+uninstall says the guard is still there rather than reporting a removal that
+did not happen.
+
+Unattended:
 
 ```powershell
 .\install.ps1 -Uninstall -UninstallMode RestoreDefaults -NonInteractive
 ```
 
+`-NonInteractive` has no default and requires `-UninstallMode`. The accepted
+values are `RestoreDefaults`, `KeepSettings` and `KeepSettingsAndPurge`.
+
 ---
+
+<a id="interfaces"></a>
 
 ## 🖥️ Interfaces
 
@@ -138,7 +177,10 @@ fedupdate
 | `fedupdate update -All` | Run every engine, enforce the shield, then evaluate the reboot policy |
 | `fedupdate update -OS` / `-Winget` / `-Store` | One engine only |
 | `fedupdate update -All -WhatIf` | Simulate the whole run without touching anything |
-| `fedupdate watchdog audit` / `enforce` | Inspect or re-apply the anti-tamper shield |
+| `fedupdate watchdog status` | Whether the boot guard is installed, when it last ran and when it runs next. Needs nothing granting |
+| `fedupdate watchdog audit` | That status, then every managed setting and whether it matches |
+| `fedupdate watchdog enforce` | Re-apply the shield |
+| `fedupdate watchdog install-task` / `remove-task` | Add or remove the on-boot guard on its own |
 | `fedupdate rollback` | List the state ledger |
 | `fedupdate rollback -Latest` / `-All` / `-TransactionId <id>` | Revert recorded changes |
 | `fedupdate schedule set -Frequency Daily -Time "02:00"` | Register an automated run |
@@ -155,50 +197,70 @@ Restart handling on `update` can be overridden per run with `-RebootPolicy`,
 something the system is genuinely waiting on, never for routine installer
 cleanup.
 
+Scanning for OS updates needs administrator rights while the shield is on, so a
+scan that cannot look says it did not look. It never reports zero updates for a
+check it was not allowed to run. The last successful scan is kept with the time
+it was taken, so an ordinary session can still show you a real measurement and
+tell you how old it is.
+
 ---
 
-## 📁 Directory Structure
+## 📁 Project Layout
 
 ``` shell
 FedUpDate/
-├── CHANGELOG.md               # Versioning and exhaustive changelog
-├── README.md                  # Documentation and user guide
-├── install.ps1                # One-liner zero-dependency installer
-├── fedupdate.ps1              # Master CLI / TUI / GUI entry point
-├── fedupdate.cmd              # Windows CMD/terminal wrapper
-├── fedupdate-gui.vbs          # Zero-terminal silent GUI launcher
-├── assets/                    # Brand marks, every size the project ships
-│   ├── master.png             # 1024px source the rest is rendered from
-│   ├── app/                   # Splash and title bar marks used by the GUI
-│   ├── desktop/               # app.ico for Windows, iconset and hicolor sets
-│   ├── readme/                # Documentation marks
-│   ├── screenshots/           # Interface captures used by this README
-│   └── web/                   # Favicon, touch icon and PWA marks
-├── core/                      # PowerShell Engine Core
-│   ├── Engine.psm1            # Master module orchestrator
-│   ├── OSUpdateEngine.ps1     # Native Windows Update Agent & Defender updater
-│   ├── WingetEngine.ps1       # WinGet package manager parser & updater
-│   ├── StoreEngine.ps1        # Microsoft Store MDM CIM update engine
-│   ├── RebootEngine.ps1       # Multi-registry reboot detection & policy handler
-│   ├── AntiTamperWatchdog.ps1 # Windows update service auditor & boot enforcer
-│   ├── RollbackEngine.ps1     # State ledger, registry/service snapshot & restore
+├── install.ps1                # Zero-dependency installer, updater and uninstaller
+├── fedupdate.ps1              # CLI / TUI / GUI entry point
+├── fedupdate.cmd              # Windows CMD and terminal wrapper
+├── fedupdate-gui.vbs          # Fallback silent GUI launcher
+├── core/                      # PowerShell engine
+│   ├── Engine.psm1            # Module orchestrator and public surface
+│   ├── OSUpdateEngine.ps1     # Windows Update Agent COM, Defender definitions, article links
+│   ├── WingetEngine.ps1       # WinGet package parser and updater
+│   ├── StoreEngine.ps1        # Microsoft Store MDM CIM sync
+│   ├── RebootEngine.ps1       # Pending restart detection, grading and policy
+│   ├── AntiTamperWatchdog.ps1 # Managed settings, audit, enforcement, boot guard, guard state
+│   ├── RollbackEngine.ps1     # Install baseline, state ledger, restore
 │   ├── Scheduler.ps1          # Windows Scheduled Task automation
-│   ├── Config.ps1             # Configuration manager (config.json)
-│   └── Logger.ps1             # Structured, colorized rolling logger
-├── tui/                       # Terminal User Interface
-│   └── TuiEngine.ps1          # Interactive keyboard-driven ANSI dashboard
-├── gui/                       # Fluent 2 Modern Desktop Interface
-│   ├── index.html             # Semantic Windows 11 Fluent 2 layout
-│   ├── styles.css             # Vanilla CSS design system (Mica, Acrylic, Fluent Cards)
-│   ├── app.js                 # Reactive UI controller & state management
-│   ├── Server.ps1             # Lightweight local HTTP/IPC bridge
-│   └── src/Program.cs         # C# native WPF WebView2 desktop window host
-└── data/                      # Local App Data & Snapshots
-    ├── config.json            # User preferences and rules
-    ├── state_ledger.json      # Complete change ledger for rollbacks
-    ├── backups/               # Timestamped state and file backups
-    └── logs/                  # Rolling execution logs (fedupdate.log)
+│   ├── Config.ps1             # config.json and the data directory
+│   ├── Version.ps1            # Installed version, release channel, self-update
+│   └── Logger.ps1             # Structured rolling logger
+├── tui/
+│   └── TuiEngine.ps1          # Keyboard-driven ANSI dashboard
+├── gui/                       # Fluent 2 desktop interface
+│   ├── index.html             # Windows 11 Fluent 2 layout
+│   ├── styles.css             # Tokenised design system (Mica, Acrylic, Fluent cards)
+│   ├── app.js                 # Interface controller and state
+│   ├── Server.ps1             # Local HTTP bridge between the window and the engine
+│   ├── manifest.json          # Web app manifest served by the bridge
+│   ├── build.ps1              # Compiles the window with the compiler shipped in Windows
+│   ├── SetupLibs.ps1          # Fetches the WebView2 libraries from Microsoft
+│   ├── src/Program.cs         # WPF WebView2 host, the window itself
+│   └── bin/                   # Built on your machine, not committed
+├── assets/                    # Brand marks
+│   ├── app/                   # Splash and title bar marks used by the GUI
+│   ├── desktop/               # app.ico, plus iconset and hicolor sets
+│   ├── readme/                # Marks used by this file
+│   ├── screenshots/           # Interface captures used by this file
+│   └── web/                   # Favicon, touch icon and PWA marks
+└── data/                      # Created on first run, never touched by an update
+    ├── config.json            # Your preferences and rules
+    ├── state_ledger.json      # The installation baseline and every recorded change
+    ├── watchdog_state.json    # Whether the boot guard exists, its interval, its last run
+    ├── os_scan_cache.json     # The last OS scan, with when it was taken
+    ├── backups/               # Timestamped file backups
+    └── logs/                  # Rolling execution log (fedupdate.log)
 ```
+
+An installation also holds `version.txt`, written by the installer. Two more
+files appear briefly under `data/` while an elevated helper hands its results
+back to the session that asked for them.
+
+Everything above `core/` in this listing travels to an installation. The
+changelog, licence, contributing guide, security policy, workflow definitions,
+`assets/readme/`, `assets/screenshots/`, `assets/desktop/hicolor/`,
+`assets/desktop/iconset/` and the icon sizes nothing reads stay in the
+repository, where they are for.
 
 ---
 

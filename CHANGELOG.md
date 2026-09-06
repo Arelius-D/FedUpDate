@@ -5,6 +5,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.41] - 2026-09-06
+
+### Changed
+
+- **The Readme Described Software That Had Moved On Without It (`README.md`)**:
+  - It named `UsoSvc` among the services the shield suppresses. The shield has never touched `UsoSvc`. It manages eleven things: six Windows Update policy values, the `wuauserv` and `DoSvc` services, and three scheduled tasks. That is what it says now, and the audit lists all eleven.
+  - It said every registry, service and task change is snapshotted. That stopped being true when the baseline moved to installation time. The machine is read once, before a single setting is touched, and a setting is recorded the first time it is changed and not again. Describing the old behaviour told people to expect an entry for every enforcement, which is the pile of five hundred that got fixed.
+  - The uninstall table carried the three outcomes as they were worded before they were rewritten, with no default and no sign that the removal itself is settled. It now reads the way the question is actually asked: the application goes either way, answer 1 undoes the settings and removes everything, and pressing Enter takes it.
+  - The command list had no `watchdog status`, no `watchdog install-task` and no `watchdog remove-task`, so three commands that exist could only be found by reading the source.
+  - The directory listing described this repository as though it were an installation, down to a changelog, a readme, screenshots and icon sets that have not been copied onto anybody's machine since 1.0.36. It also left out `core/Version.ps1`, the four files the desktop window is built with, and four of the files under `data/`. It now says what is in the repository and which parts of it never travel.
+  - The desktop title bar was given as 48px. It is 2.5rem. The text interface was credited with interactive checkboxes and meters, and has a numbered menu.
+  - Nothing in it mentioned that starting the application does nothing at all, that the shield's own state can be read without administrator rights, that how often the guard re-checks is a setting, that updates arrive with somewhere to read about them, or that a scan which was not allowed to look says so rather than reporting zero. Those are the answers to the questions the readme was there to answer.
+  - The interfaces badge pointed at an anchor that does not exist, so the one link meant to take you to the interfaces went nowhere.
+
+- **`fedupdate help` Listed Less Than `fedupdate` Accepts (`fedupdate.ps1`)**:
+  - The printed help had drifted the same way. No `check`, and `watchdog` shown as audit or enforce when it also answers status, install-task and remove-task. Help that is missing commands is worse than no help, because it reads as the complete set.
+
+- **Two Comments Describing Work That Had Been Replaced (`core/RollbackEngine.ps1`, `gui/styles.css`)**:
+  - The rollback engine's header still announced that it records every change. The stylesheet labelled the title bar 3rem and then called that 48px, while the token it points at is 2.5rem. It now points at the token and states nothing the token does not.
+
+---
+
 ## [1.0.40] - 2026-09-06
 
 ### Added

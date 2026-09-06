@@ -343,12 +343,18 @@ switch ($Command.ToLower()) {
         Write-Host @"
 FedUpDate (fedupdate) CLI Help:
   fedupdate scan                      Deep audit of OS updates, WinGet packages, Store, reboot flags
+  fedupdate check                     Same audit, exit code only: 0 clean, 1 updates pending
   fedupdate update -All [-WhatIf]     Run unified updates across all 3 engines
   fedupdate update -OS                Update Windows OS & Defender definitions only
   fedupdate update -Winget            Update WinGet packages only
   fedupdate update -Store             Trigger Microsoft Store background sync only
-  fedupdate watchdog [audit|enforce]  Audit or enforce anti-tamper update policies
-  fedupdate rollback [-Latest]        Rollback registry and service states to previous snapshots
+  fedupdate watchdog status           Is the boot guard installed, when did it last run, when next
+  fedupdate watchdog audit            That status, then every managed setting and whether it matches
+  fedupdate watchdog enforce          Re-apply the anti-tamper settings
+  fedupdate watchdog install-task     Add the on-boot guard on its own
+  fedupdate watchdog remove-task      Remove the on-boot guard on its own
+  fedupdate rollback                  List the state ledger
+  fedupdate rollback [-Latest|-All]   Put settings back as they were found at installation
   fedupdate schedule [set|remove]     Manage automated update scheduled tasks
   fedupdate logs [-Count N]           Show recent execution log entries
   fedupdate config                    Print the active configuration
