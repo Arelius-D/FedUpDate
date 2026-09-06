@@ -215,6 +215,9 @@ function Start-FedTUI {
             "4" {
                 Show-FedHeader
                 Write-Host "`e[1;37mANTI-TAMPER WATCHDOG CENTER`e[0m`n"
+                Write-Host "`n`e[1;37m--- Anti-Tamper Shield ---`e[0m"
+                foreach ($line in (Format-FedWatchdogStatus)) { Write-Host " $line" }
+
                 $audit = Get-FedWatchdogAudit -Elevate
                 Write-Host "Audit Results:"
                 foreach ($item in $audit.AuditItems) {

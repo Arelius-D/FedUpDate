@@ -221,6 +221,11 @@ switch ($Command.ToLower()) {
                 $enforceRes = Enforce-FedWatchdog -WhatIf:$isWhatIf
                 Write-Host "`n[OK] Anti-Tamper desired state enforced." -ForegroundColor Green
             }
+            "status" {
+                Write-Host "`n=== ANTI-TAMPER SHIELD ===" -ForegroundColor Cyan
+                foreach ($line in (Format-FedWatchdogStatus)) { Write-Host $line }
+                Write-Host ""
+            }
             "install-task" {
                 Install-FedWatchdogTask -WhatIf:$isWhatIf
             }
@@ -228,14 +233,28 @@ switch ($Command.ToLower()) {
                 Uninstall-FedWatchdogTask -WhatIf:$isWhatIf
             }
             Default {
+                # The guard's own state comes first and needs nothing granting,
+                # so somebody can see whether it is installed and when it last
+                # ran without being asked for anything.
+                Write-Host "`n=== ANTI-TAMPER SHIELD ===" -ForegroundColor Cyan
+                foreach ($line in (Format-FedWatchdogStatus)) { Write-Host $line }
+
                 $audit = Get-FedWatchdogAudit -Elevate
-                Write-Host "`n=== ANTI-TAMPER POLICY AUDIT ===" -ForegroundColor Cyan
-                Write-Host "Policy Drift Detected: $($audit.HasDrifted)"
-                foreach ($item in $audit.DriftItems) {
-                    Write-Host " - [DRIFT] $item" -ForegroundColor Yellow
+                Write-Host "`n=== SETTINGS ===" -ForegroundColor Cyan
+                foreach ($item in $audit.AuditItems) {
+                    $state = if (-not $item.Readable) { "could not read" }
+                             elseif ($item.Drifted) { "does not match" }
+                             else { "matches" }
+                    $colour = if (-not $item.Readable) { "Yellow" } elseif ($item.Drifted) { "Yellow" } else { "Green" }
+                    Write-Host ("  {0,-46} {1,-16} {2}" -f $item.Name, $item.Actual, $state) -ForegroundColor $colour
                 }
-                if (-not $audit.HasDrifted) {
-                    Write-Host "[OK] System policies match hardened desired state." -ForegroundColor Green
+                Write-Host ""
+                if ($audit.UnreadCount -gt 0) {
+                    Write-Host "$($audit.DriftCount) of $(@($audit.AuditItems).Count) do not match. $($audit.UnreadCount) could not be read." -ForegroundColor Yellow
+                } elseif ($audit.HasDrifted) {
+                    Write-Host "$($audit.DriftCount) of $(@($audit.AuditItems).Count) do not match what you asked for." -ForegroundColor Yellow
+                } else {
+                    Write-Host "All $(@($audit.AuditItems).Count) match what you asked for." -ForegroundColor Green
                 }
                 Write-Host ""
             }

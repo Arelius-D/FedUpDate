@@ -492,6 +492,11 @@ try {
                     Start-BackgroundUpdate -updateParams $updateParams
                     Send-FedResponse -Context $context -Content @{ isRunning = $true } -ContentType "application/json"
                 }
+                "/api/watchdog/status" {
+                    # Read from what this installation wrote down, so it costs
+                    # nothing and asks for nothing.
+                    Send-FedResponse -Context $context -Content (Get-FedWatchdogStatus) -ContentType "application/json"
+                }
                 "/api/watchdog/audit" {
                     try {
                         # Somebody pressed Run Audit and is waiting, so this is the

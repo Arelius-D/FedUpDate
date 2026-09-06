@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.40] - 2026-09-06
+
+### Added
+
+- **The Shield's Own State Is Visible, Everywhere, Without Asking For Anything (`core/AntiTamperWatchdog.ps1`, `core/Config.ps1`, `core/Engine.psm1`, `gui/index.html`, `gui/app.js`, `gui/Server.ps1`, `tui/TuiEngine.ps1`, `fedupdate.ps1`)**:
+  - There was no way to see whether the guard that defends these settings existed. Not whether it was installed, not whether it was running, not when it last looked or when it looks next. The only way to be sure was to enforce again and watch it happen, whether or not it was already in place, so somebody who had already done it had no way of knowing and did it again. This is an application for people who are fed up with thinking about updates, and it required thinking about it constantly.
+  - The guard now records what it is and what it has done. Whether it is installed, when it was installed, how often it runs, when it last ran, how many settings it put back when it did. All of it is written by the application itself, which is why none of it needs administrator rights to read: it says what it did rather than asking Windows about a task an ordinary session is not permitted to see.
+  - Every interface shows it. The desktop interface has it on the shield page, refreshed when the page is opened and after anything that changes it. The command line answers `fedupdate watchdog status`, and shows it above the audit. The text interface shows it on its shield screen.
+  - How often the guard re-checks is now a setting rather than a number in the source. It can be changed from the shield page, and takes effect the next time the shield is enforced.
+
+- **The Command Line Audit Reports Every Setting (`fedupdate.ps1`)**:
+  - It printed whether anything had drifted and then listed the drifted items by object, which rendered as nothing useful. It now lists every setting with what is there and whether it matches, the same as the desktop interface, and says how many could not be read.
+
+---
+
 ## [1.0.39] - 2026-09-06
 
 ### Changed

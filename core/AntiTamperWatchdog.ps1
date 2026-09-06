@@ -8,6 +8,152 @@
 . "$PSScriptRoot\Config.ps1"
 . "$PSScriptRoot\RollbackEngine.ps1"
 
+function Get-FedWatchdogStateFile {
+    return Join-Path (Get-FedDataDirectory) "watchdog_state.json"
+}
+
+function Get-FedWatchdogState {
+    <#
+    .SYNOPSIS
+        What this installation has recorded about its own guard.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $f = Get-FedWatchdogStateFile
+    if (-not (Test-Path $f)) { return $null }
+    try {
+        $raw = Get-Content -Path $f -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    } catch { return $null }
+}
+
+function Set-FedWatchdogState {
+    <#
+    .SYNOPSIS
+        Records something about the guard, leaving the rest as it was.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Values
+    )
+
+    $current = Get-FedWatchdogState
+    $state = @{
+        Installed       = $false
+        InstalledAt     = $null
+        IntervalMinutes = 15
+        LastRun         = $null
+        LastRunApplied  = 0
+    }
+    if ($current) {
+        foreach ($k in @($state.Keys)) {
+            if ($null -ne $current.PSObject.Properties[$k]) { $state[$k] = $current.$k }
+        }
+    }
+    foreach ($k in $Values.Keys) { $state[$k] = $Values[$k] }
+
+    try {
+        [PSCustomObject]$state | ConvertTo-Json -Depth 4 | Set-Content -Path (Get-FedWatchdogStateFile) -Encoding UTF8 -ErrorAction Stop
+    } catch { }
+}
+
+function Get-FedWatchdogStatus {
+    <#
+    .SYNOPSIS
+        Whether the guard is installed, when it last ran and when it runs next.
+    .DESCRIPTION
+        Somebody with the application open should be able to see whether the
+        thing that defends their settings is there and working, without running
+        an audit to find out and without handing over administrator rights to
+        ask. There was no way to see any of it, so the only way to be sure the
+        guard was in place was to enforce again, whether or not it already was.
+
+        None of this needs elevation, because the application writes down what
+        it did rather than going to ask Windows about a task an ordinary session
+        is not allowed to see.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $config = Get-FedConfig
+    $state = Get-FedWatchdogState
+    $interval = if ($state -and $state.IntervalMinutes) { [int]$state.IntervalMinutes }
+                elseif ($config.watchdog.PSObject.Properties['intervalMinutes']) { [int]$config.watchdog.intervalMinutes }
+                else { 15 }
+
+    $installed = [bool]($state -and $state.Installed)
+    $lastRun = $null
+    if ($state -and -not [string]::IsNullOrWhiteSpace([string]$state.LastRun)) {
+        $parsed = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$state.LastRun, [ref]$parsed)) { $lastRun = $parsed }
+    }
+
+    $nextRun = $null
+    $minutesUntil = $null
+    if ($installed -and $lastRun) {
+        $nextRun = $lastRun.AddMinutes($interval)
+        $minutesUntil = [int][math]::Ceiling(($nextRun - (Get-Date)).TotalMinutes)
+        # Overdue means the machine was asleep or the task has not fired yet.
+        if ($minutesUntil -lt 0) { $minutesUntil = 0 }
+    }
+
+    return [PSCustomObject]@{
+        Wanted          = [bool]$config.watchdog.enforceOnBoot
+        Installed       = $installed
+        InstalledAt     = if ($state) { $state.InstalledAt } else { $null }
+        IntervalMinutes = $interval
+        LastRun         = if ($lastRun) { $lastRun.ToString("o") } else { $null }
+        LastRunAgo      = if ($lastRun) { Get-FedFriendlyAge -Iso $lastRun.ToString("o") } else { $null }
+        LastRunApplied  = if ($state -and $null -ne $state.LastRunApplied) { [int]$state.LastRunApplied } else { 0 }
+        NextRun         = if ($nextRun) { $nextRun.ToString("o") } else { $null }
+        MinutesUntilNext = $minutesUntil
+    }
+}
+
+function Format-FedWatchdogStatus {
+    <#
+    .SYNOPSIS
+        The guard's state in plain lines, for whichever interface is asking.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $st = Get-FedWatchdogStatus
+    $lines = @()
+
+    if (-not $st.Wanted) {
+        $lines += "Boot guard      : turned off in settings"
+        return $lines
+    }
+
+    if ($st.Installed) {
+        $lines += "Boot guard      : installed and scheduled"
+    } else {
+        $lines += "Boot guard      : not installed, so nothing re-applies these settings"
+    }
+
+    $lines += "Runs every      : $($st.IntervalMinutes) minutes"
+
+    if ($st.LastRun) {
+        $put = if ($st.LastRunApplied -gt 0) { ", put back $($st.LastRunApplied) setting(s)" } else { ", nothing needed putting back" }
+        $lines += "Last checked    : $($st.LastRunAgo)$put"
+    } else {
+        $lines += "Last checked    : never"
+    }
+
+    if ($null -ne $st.MinutesUntilNext) {
+        $when = if ($st.MinutesUntilNext -le 0) { "due now" } else { "in $($st.MinutesUntilNext) minute(s)" }
+        $lines += "Next check      : $when"
+    } else {
+        $lines += "Next check      : not scheduled"
+    }
+
+    return $lines
+}
+
 function Get-FedWatchdogAudit {
     <#
     .SYNOPSIS
@@ -254,6 +400,12 @@ function Enforce-FedWatchdog {
     # announced that nothing had needed doing, directly beneath the lines saying
     # it had just set six registry values and reconfigured a service.
     $managed = @(Get-FedManagedState).Count
+    # Written down so any session can say when the guard last did anything,
+    # without asking Windows about a task it is not allowed to see.
+    Set-FedWatchdogState -Values @{
+        LastRun        = (Get-Date).ToString("o")
+        LastRunApplied = [int]$script:FedEnforceApplied
+    }
     if ($script:FedEnforceApplied -eq 0) {
         Write-FedLog "Checked $managed setting(s). All were already as they should be." -Level "INFO" -Component "Watchdog"
     } else {
@@ -311,9 +463,17 @@ function Install-FedWatchdogTask {
         # How often the guard re-asserts the desired state while the machine is
         # running. Windows undoes it within minutes, so checking only at startup
         # means the shield is down for almost the whole session.
+        # Taken from configuration when not given, so somebody changing how
+        # often the guard runs actually changes how often the guard runs.
         [Parameter()]
-        [int]$IntervalMinutes = 15
+        [int]$IntervalMinutes = 0
     )
+
+    if ($IntervalMinutes -le 0) {
+        $cfg = Get-FedConfig
+        $IntervalMinutes = if ($cfg.watchdog.PSObject.Properties['intervalMinutes']) { [int]$cfg.watchdog.intervalMinutes } else { 15 }
+        if ($IntervalMinutes -le 0) { $IntervalMinutes = 15 }
+    }
 
     $taskName = "FedUpDate-Watchdog-Enforcer"
     $scriptRoot = Split-Path -Parent $PSScriptRoot
@@ -341,6 +501,9 @@ function Install-FedWatchdogTask {
     # while reporting on each line that it runs every fifteen minutes.
     $already = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($already -and $already.State -ne "Disabled") {
+        # Already there, so nothing to write to Windows, but this installation
+        # should still know it is there.
+        Set-FedWatchdogState -Values @{ Installed = $true; IntervalMinutes = [int]$IntervalMinutes }
         return $true
     }
 
@@ -385,6 +548,11 @@ function Install-FedWatchdogTask {
             return $false
         }
 
+        Set-FedWatchdogState -Values @{
+            Installed       = $true
+            InstalledAt     = (Get-Date).ToString("o")
+            IntervalMinutes = [int]$IntervalMinutes
+        }
         Write-FedLog "Registered watchdog task '$taskName' (SYSTEM, session 0), at startup and every $IntervalMinutes minutes, verified present." -Level "SUCCESS" -Component "Watchdog"
         return $true
     } catch {
@@ -413,6 +581,7 @@ function Uninstall-FedWatchdogTask {
     } catch { }
 
     if (-not (Test-FedWatchdogTaskExists -TaskName $taskName)) {
+        Set-FedWatchdogState -Values @{ Installed = $false }
         Write-FedLog "Unregistered watchdog task '$taskName'." -Level "SUCCESS" -Component "Watchdog"
         return $true
     }
@@ -430,6 +599,7 @@ function Uninstall-FedWatchdogTask {
             Write-FedLog "Removing the boot guard needs administrator rights. Asking for them." -Level "INFO" -Component "Watchdog"
             $p = Start-Process -FilePath "schtasks.exe" -ArgumentList "/Delete /TN `"$taskName`" /F" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
             if (-not (Test-FedWatchdogTaskExists -TaskName $taskName)) {
+                Set-FedWatchdogState -Values @{ Installed = $false }
                 Write-FedLog "Unregistered watchdog task '$taskName'." -Level "SUCCESS" -Component "Watchdog"
                 return $true
             }
@@ -468,4 +638,4 @@ function Test-FedWatchdogTaskExists {
     return $false
 }
 
-Export-ModuleMember -Function Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists -ErrorAction SilentlyContinue

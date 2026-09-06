@@ -462,6 +462,39 @@
           </div>
 
           <div class="settings-section">
+            <div class="settings-card" id="watchdogStatusCard">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 2a.75.75 0 0 1 .4.11l6.25 3.75A.75.75 0 0 1 17 6.5v4.5c0 4.14-2.8 7.37-6.72 8.44a.75.75 0 0 1-.56 0C5.8 18.37 3 15.14 3 11V6.5a.75.75 0 0 1 .35-.64l6.25-3.75A.75.75 0 0 1 10 2Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title" id="watchdogStatusTitle">Boot guard</div>
+                <div class="card-desc" id="watchdogStatusDesc">Reading the recorded state...</div>
+              </div>
+              <div class="card-actions">
+                <span class="badge-pill badge-recommended" id="watchdogStatusBadge">Unknown</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-icon-box">
+                <svg viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 0 7 7 .75.75 0 0 0-1.5 0A5.5 5.5 0 1 1 10 4.5a.75.75 0 0 0 0-1.5Zm.75 3.25a.75.75 0 0 0-1.5 0V10c0 .28.16.54.41.67l2.5 1.25a.75.75 0 1 0 .68-1.34l-2.09-1.05V6.25Z"/></svg>
+              </div>
+              <div class="card-content">
+                <div class="card-title">How often the guard re-checks</div>
+                <div class="card-desc">Windows undoes these settings while the machine is running, not only across a restart.</div>
+              </div>
+              <div class="card-actions">
+                <select id="watchdogIntervalSelect" class="fluent-select">
+                  <option value="5">Every 5 minutes</option>
+                  <option value="15">Every 15 minutes</option>
+                  <option value="30">Every 30 minutes</option>
+                  <option value="60">Every hour</option>
+                  <option value="240">Every 4 hours</option>
+                </select>
+                <button class="btn btn-secondary" id="saveWatchdogIntervalBtn">Save</button>
+              </div>
+            </div>
+
             <div class="table-container" id="watchdogAuditPanel" hidden>
               <table class="packages-table">
                 <thead>

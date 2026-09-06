@@ -137,6 +137,9 @@ function setupNavigation() {
   window.navigateTo = function(pageId) {
     if (!pageId) return;
     state.activePage = pageId;
+    // Reading what was written down about the guard costs nothing and asks for
+    // nothing, so the page that is about the guard shows it on arrival.
+    if (pageId === 'watchdog') { loadWatchdogStatus(); }
 
     // Update active state on tab buttons
     tabButtons.forEach(btn => {
@@ -452,6 +455,24 @@ function setupEventListeners() {
 
   // Watchdog Actions
   document.getElementById('auditWatchdogBtn')?.addEventListener('click', runWatchdogAudit);
+
+  document.getElementById('saveWatchdogIntervalBtn')?.addEventListener('click', async () => {
+    const minutes = parseInt(document.getElementById('watchdogIntervalSelect')?.value || '15', 10);
+    setDockProgress("Saving", `Setting the guard to re-check every ${minutes} minutes...`, 50, true);
+    try {
+      await fetch(`${API_BASE}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchdog: { intervalMinutes: minutes } })
+      });
+      // The guard is registered with the interval it was given, so the change
+      // reaches Windows the next time the shield is enforced.
+      setDockProgress("Saved", `The guard will re-check every ${minutes} minutes from the next enforcement.`, 100, false);
+      await loadWatchdogStatus();
+    } catch (err) {
+      setDockProgress("Error", `Could not save: ${err.message}`, 0, false);
+    }
+  });
   document.getElementById('enforceWatchdogBtn')?.addEventListener('click', () => enforceWatchdog(false));
 
   // Rollback Actions
@@ -1189,6 +1210,62 @@ function renderWatchdogAudit(audit) {
   panel.hidden = false;
 }
 
+// Whether the guard exists, when it last ran and when it runs next. Read from
+// what this installation wrote down, so it costs nothing, asks for nothing, and
+// is there to be looked at rather than something to go and find out. Without it
+// the only way to know the guard was in place was to enforce again and see.
+async function loadWatchdogStatus() {
+  const title = document.getElementById('watchdogStatusTitle');
+  const desc = document.getElementById('watchdogStatusDesc');
+  const badge = document.getElementById('watchdogStatusBadge');
+  const select = document.getElementById('watchdogIntervalSelect');
+  if (!desc || !badge) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/watchdog/status`);
+    const st = await res.json();
+
+    if (select && st.IntervalMinutes) select.value = String(st.IntervalMinutes);
+
+    if (!st.Wanted) {
+      badge.textContent = 'Turned off';
+      badge.className = 'badge-pill badge-recommended';
+      if (title) title.textContent = 'Boot guard';
+      desc.textContent = 'Turned off in settings, so nothing re-applies these settings after Windows changes them.';
+      return;
+    }
+
+    if (!st.Installed) {
+      badge.textContent = 'Not installed';
+      badge.className = 'badge-pill badge-amber';
+      if (title) title.textContent = 'Boot guard';
+      desc.textContent = 'Not installed. Nothing is re-applying these settings. Enforce Shield State installs it.';
+      return;
+    }
+
+    badge.textContent = 'Installed';
+    badge.className = 'badge-pill badge-green';
+    if (title) title.textContent = 'Boot guard';
+
+    const last = st.LastRun
+      ? `Last checked ${st.LastRunAgo}` + (st.LastRunApplied > 0
+          ? `, putting back ${st.LastRunApplied} setting${st.LastRunApplied === 1 ? '' : 's'}.`
+          : ', nothing needed putting back.')
+      : 'It has not run yet.';
+    const next = (st.MinutesUntilNext === null || st.MinutesUntilNext === undefined)
+      ? ''
+      : (st.MinutesUntilNext <= 0
+          ? ' Next check is due now.'
+          : ` Next check in ${st.MinutesUntilNext} minute${st.MinutesUntilNext === 1 ? '' : 's'}.`);
+
+    desc.textContent = `Runs every ${st.IntervalMinutes} minutes. ${last}${next}`;
+  } catch (err) {
+    badge.textContent = 'Unknown';
+    badge.className = 'badge-pill badge-recommended';
+    desc.textContent = 'The recorded state could not be read.';
+  }
+}
+
 async function runWatchdogAudit() {
   setDockProgress("Auditing", "Reading every setting the shield manages...", 40, true);
   try {
@@ -1208,6 +1285,7 @@ async function runWatchdogAudit() {
     } else {
       summary = `All ${total} settings match what you asked for.`;
     }
+    await loadWatchdogStatus();
     setDockProgress("Audit Complete", summary, 100, false);
   } catch (err) {
     setDockProgress("Error", `Watchdog audit failed: ${err.message}`, 0, false);
@@ -1239,6 +1317,7 @@ async function enforceWatchdog(isWhatIf = false) {
       updateDashboardUI();
       renderWatchdogAudit(audit);
     } catch (e) {}
+    await loadWatchdogStatus();
     await loadLedger();
   } catch (err) {
     setDockProgress("Error", `Enforce failed: ${err.message}`, 0, false);

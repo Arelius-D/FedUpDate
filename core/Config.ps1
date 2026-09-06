@@ -38,6 +38,8 @@ function Get-FedDefaultConfig {
         watchdog    = [PSCustomObject]@{
             enabled                    = $true
             enforceOnBoot              = $true
+            # How often the boot guard re-checks while the machine is running.
+            intervalMinutes            = 15
             disableAutoUpdateService   = $true
             disableUpdateOrchestrator  = $true
             disableDeliveryOptimization = $false
