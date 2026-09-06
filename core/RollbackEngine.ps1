@@ -50,7 +50,10 @@ function Save-FedLedger {
 
     $ledgerFile = Get-FedLedgerFile
     try {
-        $json = $Ledger | ConvertTo-Json -Depth 10
+        # A ledger with one transaction in it is still a ledger. Piping unrolls
+        # it and writes a bare object, which reads back only because Get-FedLedger
+        # wraps whatever it finds.
+        $json = ConvertTo-Json -InputObject $Ledger -Depth 10
         Set-Content -Path $ledgerFile -Value $json -Encoding UTF8
         return $true
     } catch {

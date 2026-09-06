@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.43] - 2026-09-06
+
+### Fixed
+
+- **A Ledger Holding One Entry Was Sent To The Interface As No Ledger At All (`gui/Server.ps1`, `core/RollbackEngine.ps1`, `gui/app.js`)**:
+  - A fresh installation has exactly one thing in its record: the reading of the machine taken at install time, before anything was touched. One transaction, eleven settings. The rollback page showed "No state transactions recorded yet." It was there the whole time.
+  - Piping a collection into ConvertTo-Json unrolls the collection first, so a list of one is written as a bare object rather than a list of one. The page reads these answers as lists and discards anything that is not one, so the single most important record this application keeps arrived as nothing and was reported as nothing. An empty list came out worse still: the pipeline produced no output at all, the body was zero bytes, and the page could not read it.
+  - Every answer is now handed over whole instead of being piped, so a list stays a list at every length, and the page keeps a list of one rather than throwing it away. The same collapse was writing the ledger file itself as a bare object whenever it held a single transaction.
+  - The command line was never affected and has been listing that transaction all along, which is how the two disagreed.
+
+- **The Command Line Listed The Record By A Field It Does Not Have (`fedupdate.ps1`)**:
+  - Each line printed "Trigger:" followed by nothing, because a transaction has no such field, and left out the description, which is the only part of it written for somebody to read. It now says what the transaction is, then its identifier and how many settings it holds.
+
+---
+
 ## [1.0.42] - 2026-09-06
 
 ### Fixed

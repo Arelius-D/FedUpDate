@@ -273,7 +273,11 @@ switch ($Command.ToLower()) {
             $ledger = Get-FedLedger
             Write-Host "`n=== FEDUPDATE SYSTEM STATE LEDGER ===" -ForegroundColor Cyan
             foreach ($tx in $ledger) {
-                Write-Host "[$($tx.Timestamp)] ID: $($tx.Id) | Trigger: $($tx.Trigger) | Changes: $($tx.Changes.Count)"
+                # A transaction has never had a Trigger, so the line printed an
+                # empty label and left out the description, which is the only
+                # part of it written for somebody to read.
+                Write-Host "[$($tx.Timestamp)] $($tx.Description)"
+                Write-Host "    $($tx.Id)  $(@($tx.Changes).Count) setting(s) recorded"
             }
             Write-Host "`nUse: fedupdate rollback -Latest (or -TransactionId <ID>)`n"
         }

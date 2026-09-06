@@ -1329,7 +1329,7 @@ async function loadLedger() {
   try {
     const res = await fetch(`${API_BASE}/api/rollback/ledger`);
     const ledger = await res.json();
-    state.ledger = Array.isArray(ledger) ? ledger : [];
+    state.ledger = fedAsArray(ledger);
     renderLedgerTimeline();
   } catch (err) {
     console.warn("Failed to load ledger:", err);
@@ -1449,12 +1449,13 @@ function startLogPolling() {
     try {
       const res = await fetch(`${API_BASE}/api/logs`);
       const newLogs = await res.json();
-      if (Array.isArray(newLogs) && newLogs.length > 0) {
-        state.logs = newLogs;
+      const logLines = fedAsArray(newLogs);
+      if (logLines.length > 0) {
+        state.logs = logLines;
         renderLogs(false);
 
         // Update latest line in bottom dock
-        const lastLog = newLogs[newLogs.length - 1];
+        const lastLog = logLines[logLines.length - 1];
         if (lastLog) {
           const dockLine = document.getElementById('dockTerminalLine');
           if (dockLine) dockLine.textContent = `[${lastLog.Component}] ${lastLog.Message}`;
@@ -1671,7 +1672,7 @@ async function loadReleaseNotes() {
   try {
     const res = await fetch(`${API_BASE}/api/changelog`);
     const data = await res.json();
-    versionState.releases = Array.isArray(data.releases) ? data.releases : [];
+    versionState.releases = fedAsArray(data.releases);
   } catch (err) {
     console.warn("Release notes lookup failed:", err);
     versionState.releases = [];
@@ -1787,6 +1788,18 @@ async function runSelfUpdate() {
     versionState.releases = null;
     await loadVersionInfo();
   }
+}
+
+// A list of one and a single item look the same coming back from PowerShell,
+// which writes a bare object for both. Reading the answer as a list and
+// discarding anything that is not one turned a ledger holding a single
+// transaction into no ledger at all, and said so on screen. The server sends
+// real lists now; this is here so that being wrong about it again shows the one
+// item rather than hiding it.
+function fedAsArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+  return [value];
 }
 
 // Helper: Escape HTML

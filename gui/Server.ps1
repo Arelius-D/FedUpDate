@@ -196,7 +196,18 @@ function Send-FedResponse {
     $response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     if ($ContentType -eq "application/json" -and $Content -isnot [string]) {
-        $Content = $Content | ConvertTo-Json -Depth 10
+        # Piping into ConvertTo-Json unrolls the collection first, so a list of
+        # one arrives as one item and is written as a bare object. The interface
+        # reads these answers as lists and discards anything that is not one, so
+        # a ledger holding a single transaction, or a single log line, was sent
+        # as something the page then threw away and reported as nothing at all.
+        # An empty list came out emptier still: the pipeline produced no output,
+        # the body was zero bytes, and the page could not parse it.
+        #
+        # -InputObject hands the whole thing over instead of unrolling it, so a
+        # list stays a list at every length. -AsArray would also say it and does
+        # not exist in the Windows PowerShell this server runs under.
+        $Content = ConvertTo-Json -InputObject $Content -Depth 10
     }
 
     $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Content)
