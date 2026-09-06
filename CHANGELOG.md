@@ -5,6 +5,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.37] - 2026-09-06
+
+### Fixed
+
+- **Opening The Window Still Audited The Machine (`gui/Server.ps1`)**:
+  - The interface had been taught not to scan when it opens, and the endpoint that answers what is already known had been taught not to start one when asked. The server itself began a full audit the moment it came up, unconditionally, before any of that could apply. So installing this, opening it and closing it again still produced a Windows Update scan, a WinGet scan and a policy audit, none of which anybody had asked for. Two of the three doors had been shut and this one was left open.
+  - The server starts nothing. Opening a window is a consequence of somebody wanting to look at the application, not a request to go through their machine, and a scan happens when it is asked for.
+
+### Added
+
+- **A Check That Starts The Application And Watches What It Does (`audit/audit-startup.ps1`)**:
+  - Every check written until now reads the source and looks for text. That catches a line being deleted and cannot catch a line being wrong, which is how a scan on startup survived being removed twice: each time it was removed from somewhere real, and each time something else was still starting one.
+  - This one starts the server, asks it only what the interface asks when it opens, waits, and reads what it wrote. It fails if anything was scanned, audited, enforced, elevated or fetched that nobody requested. It is the first check here that runs the application rather than reading it.
+
+---
+
 ## [1.0.36] - 2026-09-06
 
 ### Fixed

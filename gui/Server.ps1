@@ -306,8 +306,15 @@ function Start-BackgroundUpdate {
     }
 }
 
-# Kick off initial scan in background immediately
-Start-BackgroundScan
+# Nothing is started here. Starting the server is a consequence of somebody
+# opening the window, and opening a window is not a request to go through their
+# machine. This used to begin a full audit the moment the server came up, which
+# is why an interface that had been taught not to scan on startup, and an
+# endpoint that had been taught not to scan when merely asked what was known,
+# still produced a Windows Update scan, a WinGet scan and a policy audit on
+# every launch. Two of the three doors were shut and this one was left open.
+#
+# A scan happens when it is asked for.
 
 Write-FedLog "FedUpDate Desktop GUI ready. Press Ctrl+C in terminal to stop." -Level "INFO" -Component "GUI"
 
