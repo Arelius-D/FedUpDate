@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.34] - 2026-09-06
+
+### Fixed
+
+- **The Progress Drawer Stayed Open Over The Settings Control (`gui/app.js`)**:
+  - The drawer that reports what is running never closed after enforcing the shield, and it sits over the settings control, so there was no way to reach settings afterwards short of closing the application. Nothing in the drawer decided when it had finished; it was put away by whatever happened to run next, which for years had been the scan that followed every action. The previous release removed that scan, correctly, since nobody had asked for it, and took the only thing that ever closed the drawer with it.
+  - A drawer reporting finished work now puts itself away, after long enough to be read. Nothing else has to remember to do it, and a task that is still running keeps it open regardless of how many other things have finished in the meantime.
+
+---
+
 ## [1.0.33] - 2026-09-06
 
 ### Fixed

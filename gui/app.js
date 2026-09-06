@@ -651,7 +651,6 @@ function triggerScan({ offerElevation = false } = {}) {
           if (!result.isScanning || pollCount > 60) {
             clearInterval(scanTimer);
             setDockProgress("Ready", "System scan complete.", 100, false);
-            document.getElementById('taskProgressDock')?.classList.add('dock-idle');
             // Asked for by a person, and it could not answer half the question.
             // Saying so and offering the way through belongs here, once, rather
             // than in each button that happens to start a scan.
@@ -1166,9 +1165,6 @@ async function runWatchdogAudit() {
     state.scanData.WatchdogDrifted = audit.HasDrifted;
     updateDashboardUI();
     setDockProgress("Audit Complete", audit.HasDrifted ? "Drift detected in Windows services." : "All policies in desired state.", 100, false);
-    setTimeout(() => {
-      document.getElementById('taskProgressDock')?.classList.add('dock-idle');
-    }, 2500);
   } catch (err) {
     setDockProgress("Error", `Watchdog audit failed: ${err.message}`, 0, false);
   }
@@ -1434,16 +1430,32 @@ function setDockProgress(taskName, terminalLine, percent, isIndeterminate = fals
   }
 
   if (dock) {
-    if (taskName === "Ready" && percent === 100 && !isIndeterminate) {
-      dock.classList.add('dock-idle');
+    // The drawer retires itself when the work it is reporting on is finished,
+    // rather than waiting for whatever happens to run next to put it away. It
+    // used to depend on a scan following the task and clearing it, so removing
+    // an unnecessary scan left the drawer sitting over the settings control
+    // with no way to reach what was underneath.
+    //
+    // Finished means a full bar that is not still moving. The word on it does
+    // not matter: any task that reports itself complete puts the drawer away.
+    if (dock._fedRetire) { clearTimeout(dock._fedRetire); dock._fedRetire = null; }
+
+    const finished = percent >= 100 && !isIndeterminate;
+    if (finished) {
+      // Long enough to read what it says, short enough not to be in the way.
+      dock._fedRetire = setTimeout(() => {
+        dock.classList.add('dock-idle');
+        dock._fedRetire = null;
+      }, 2500);
     } else {
       dock.classList.remove('dock-idle');
     }
   }
 }
 
-// Version corner. The installed version comes from the server, which reads it
-// from CHANGELOG.md, so the UI cannot show a stale hardcoded string.
+// Version corner. The installed version comes from the server, which reads the
+// stamp written when this copy was installed, so the interface cannot show a
+// stale hardcoded string.
 let versionState = { current: null, latest: null, updateAvailable: false, releases: null };
 
 async function loadVersionInfo() {
