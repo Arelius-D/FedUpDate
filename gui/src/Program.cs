@@ -564,7 +564,7 @@ namespace FedUpDate.UI
                     if (cleaned.Equals("app_ready", StringComparison.OrdinalIgnoreCase))
                     {
                         _appReported = true;
-                        LogHost("Interface reported its first audit finished.");
+                        LogHost("Interface finished loading.");
                         if (_splashMinimumElapsed) DismissNativeSplash();
                         return;
                     }

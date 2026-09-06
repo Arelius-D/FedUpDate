@@ -5,6 +5,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.39] - 2026-09-06
+
+### Changed
+
+- **The Audit Says What It Means (`gui/app.js`)**:
+  - A setting holding the value it should was labelled "As set", which does not say who set it, what it was set to, or whether it is set at all. There is no shortage of words for this. A setting now reads Matches, Does not match, or Could not read, and the closing line says how many match what was asked for rather than how many are as they were set.
+
+- **The Window Says It Has Loaded Rather Than Audited (`gui/app.js`, `gui/src/Program.cs`)**:
+  - Opening the window recorded that the interface had reported its first audit finished. That was true when opening the window started an audit. It stopped being true when that was removed, and the line stayed, so a log said an audit had run on every launch when none had.
+
+---
+
 ## [1.0.38] - 2026-09-06
 
 ### Fixed

@@ -25,7 +25,7 @@ function signalAppReady() {
       // rendered is not given animation frames, so waiting for one here meant
       // the message was never sent and the splash only ever left on its
       // timeout. Waiting for a paint is pointless in any case: what the host
-      // is waiting to hear is that the first audit finished.
+      // is waiting to hear is that the interface has finished loading.
       window.chrome.webview.postMessage('app_ready');
     } catch {}
   }
@@ -1171,11 +1171,13 @@ function renderWatchdogAudit(audit) {
   body.innerHTML = items.map(i => {
     // Three outcomes, not two. A setting that could not be read is not a
     // setting that is correct, and saying so is the whole point.
+    // Three plain words for three plain outcomes. This said "As set", which
+    // does not say who set it, what it was set to, or whether it is set at all.
     const badge = !i.Readable
-      ? '<span class="badge-pill badge-recommended">Not readable</span>'
+      ? '<span class="badge-pill badge-recommended">Could not read</span>'
       : (i.Drifted
-          ? '<span class="badge-pill badge-amber">Drifted</span>'
-          : '<span class="badge-pill badge-green">As set</span>');
+          ? '<span class="badge-pill badge-amber">Does not match</span>'
+          : '<span class="badge-pill badge-green">Matches</span>');
     return `
       <tr>
         <td style="font-weight: 600;">${escapeHtml(i.Name)}</td>
@@ -1204,7 +1206,7 @@ async function runWatchdogAudit() {
     } else if (audit.HasDrifted) {
       summary = `${audit.DriftCount} of ${total} settings have drifted.`;
     } else {
-      summary = `All ${total} settings are as you set them.`;
+      summary = `All ${total} settings match what you asked for.`;
     }
     setDockProgress("Audit Complete", summary, 100, false);
   } catch (err) {
