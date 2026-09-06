@@ -228,7 +228,7 @@ switch ($Command.ToLower()) {
                 Uninstall-FedWatchdogTask -WhatIf:$isWhatIf
             }
             Default {
-                $audit = Get-FedWatchdogAudit
+                $audit = Get-FedWatchdogAudit -Elevate
                 Write-Host "`n=== ANTI-TAMPER POLICY AUDIT ===" -ForegroundColor Cyan
                 Write-Host "Policy Drift Detected: $($audit.HasDrifted)"
                 foreach ($item in $audit.DriftItems) {

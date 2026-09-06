@@ -419,7 +419,13 @@ try {
                         }
                     }
 
-                    if ($method -eq "POST" -or ($null -eq $global:LastScanData -and -not $global:IsScanRunning)) {
+                    # Only an explicit request starts a scan. Asking what is
+                    # already known used to start one whenever nothing was known
+                    # yet, which is every first launch, so opening the interface
+                    # went and checked the machine before anybody had asked it
+                    # to. Nothing is known on a fresh installation, and that is
+                    # a true and perfectly good answer to give.
+                    if ($method -eq "POST") {
                         Start-BackgroundScan
                     }
                     
@@ -481,7 +487,9 @@ try {
                 }
                 "/api/watchdog/audit" {
                     try {
-                        $audit = Get-FedWatchdogAudit
+                        # Somebody pressed Run Audit and is waiting, so this is the
+                        # one place a prompt belongs.
+                        $audit = Get-FedWatchdogAudit -Elevate
                         if ($null -ne $global:LastScanData) {
                             $global:LastScanData.WatchdogDrifted = [bool]$audit.HasDrifted
                         }
@@ -538,6 +546,29 @@ try {
                     Send-FedResponse -Context $context -Content @{ success = [bool]$ok } -ContentType "application/json"
                 }
                 "/api/version" {
+                    # Asking which version this is, is a question about this
+                    # machine and is answered from it. Asking whether a newer one
+                    # exists is a question about somewhere else, and going to ask
+                    # it means reaching out over the network on somebody's
+                    # behalf. Opening the interface used to do that on every
+                    # first launch, so an application nobody had touched yet had
+                    # already contacted a server about them.
+                    #
+                    # So the installed version is returned without asking anyone,
+                    # and the remote check happens when it is asked for.
+                    if ($method -ne "POST" -and $null -eq $global:FedVersionStatus) {
+                        Send-FedResponse -Context $context -Content ([PSCustomObject]@{
+                            Current         = (Get-FedVersion)
+                            Latest          = $null
+                            UpdateAvailable = $false
+                            RemoteReachable = $false
+                            Channel         = (Get-FedUpdateChannel)
+                            Branch          = (Get-FedChannelBranch -Channel (Get-FedUpdateChannel))
+                            NotCheckedYet   = $true
+                        }) -ContentType "application/json"
+                        break
+                    }
+
                     # The remote check is cached for the life of the server process:
                     # opening Settings repeatedly must not hammer the GitHub API.
                     if ($method -eq "POST" -or $null -eq $global:FedVersionStatus) {

@@ -23,11 +23,15 @@ function Get-FedWatchdogAudit {
     #>
     [CmdletBinding()]
     param(
-        # Reading the scheduled tasks needs elevation. Asked for it, an
-        # ordinary session re-enters elevated so the audit is complete rather
-        # than quietly partial.
+        # Reading the scheduled tasks needs elevation, and asking for it puts a
+        # prompt in front of somebody. That is fine when they have just pressed
+        # Run Audit and are waiting for an answer. It is not fine when the audit
+        # is being taken as part of something else, and it was: a scan includes
+        # one, and starting the interface used to trigger a scan, so opening the
+        # application asked for administrator rights before anybody had touched
+        # anything. Elevation is asked for only when this is what was wanted.
         [Parameter()]
-        [switch]$NoElevate
+        [switch]$Elevate
     )
 
     $config = Get-FedConfig
@@ -38,7 +42,7 @@ function Get-FedWatchdogAudit {
     # and said nothing about the rest, which is not an audit. It asks now, the
     # way checking for Windows updates asks, and the answer comes back through a
     # file because the elevated run is a separate process that then exits.
-    if (-not $isAdmin -and -not $NoElevate) {
+    if ($Elevate -and -not $isAdmin) {
         try {
             $scriptRoot = Split-Path -Parent $PSScriptRoot
             $cliScript = Join-Path $scriptRoot "fedupdate.ps1"

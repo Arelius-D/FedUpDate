@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.36] - 2026-09-06
+
+### Fixed
+
+- **Opening The Application Asked For Administrator Rights (`core/AntiTamperWatchdog.ps1`, `gui/Server.ps1`)**:
+  - Somebody installs this, opens it, and is asked to hand over administrator rights before touching anything. Nothing had been requested. The previous release taught the audit to ask for the elevation it needs to read the scheduled tasks, which is right when a person has pressed Run Audit and is waiting for an answer. But an audit is also taken as part of a scan, and asking what was already known still started a scan when nothing was known yet, which is every first launch. So opening the interface ran a scan, which ran an audit, which asked for administrator rights.
+  - Elevation is asked for only where a person asked for the audit: the button, the command, and the text interface's watchdog screen. Everything else reads what it can and reports the rest as unread.
+  - Asking what is already known no longer starts anything. Nothing is known on a fresh installation, and that is a true and perfectly good answer.
+
+- **Opening The Application Contacted GitHub (`gui/Server.ps1`, `gui/app.js`)**:
+  - Which version this is, is a question about this machine. Whether a newer one exists is a question about somewhere else, and going to ask it means reaching out over the network on somebody's behalf. The interface did that on every launch, so an application nobody had yet touched had already contacted a server about them.
+  - The installed version is answered from the installation. The check for a newer one happens when it is asked for. Until then the interface says the version has not been checked, rather than implying it is current, because not having looked is not the same as being up to date.
+
+---
+
 ## [1.0.35] - 2026-09-06
 
 ### Fixed

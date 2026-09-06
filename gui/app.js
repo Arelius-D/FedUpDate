@@ -1542,7 +1542,12 @@ async function loadVersionInfo() {
     : '';
 
   let summary;
-  if (versionState.updateAvailable) {
+  if (info.NotCheckedYet === true) {
+    // Nothing has been asked of anybody yet. Not being told there is an update
+    // is not the same as there not being one, and saying so is the difference
+    // between an honest answer and a comfortable one.
+    summary = `v${info.Current} - not checked for updates`;
+  } else if (versionState.updateAvailable) {
     summary = `v${info.Current} - v${info.Latest} available`;
   } else if (!reachable) {
     summary = `v${info.Current} - no ${channel} release to compare against`;
