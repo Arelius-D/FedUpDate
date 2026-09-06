@@ -43,6 +43,7 @@ An ultra-lightweight, transparent, and modern Windows 11 update management suite
 
 - **Update Channels & In-Place Updates**:
   - Follow published releases on the stable channel or prereleases on beta. Self-update pulls from the branch the chosen channel is cut from, so the version offered is always the version delivered.
+  - Nothing checks for a new version until you open the version panel, and opening it does the whole job in one go: it reads what has been published, says whether this installation is behind it, shows the notes for every version in between, and puts the update button there if there is one.
 
 - **Triple-Interface Flexibility**:
   - **Modern Fluent 2 Desktop GUI**: Glassmorphic Mica/Acrylic backdrops, an extended custom title bar the window draws itself, three status rings for the three engines, SettingsCards, badge pills, and a docked task progress drawer with a live terminal stream.
@@ -92,6 +93,17 @@ FedUpDate updates itself in place, from inside the app or from the command line:
 ```powershell
 fedupdate self-update
 ```
+
+Starting the application does not check for a new version, because starting an
+application is not asking it to contact anybody. You find out by asking: open
+Settings and click the GitHub mark in the bottom right, or run
+`fedupdate version`. Either one goes and looks, tells you what is published,
+shows you what changed, and offers the update if there is one. Once asked, the
+mark carries a dot for as long as an update is waiting.
+
+Updating from inside the window closes it and opens it again by itself, because
+the file it runs from has to be writable for the new one to be built into it.
+That is said before it happens, and agreed to.
 
 Two update channels are available, chosen under Settings or as `updateChannel`
 in `data/config.json`:

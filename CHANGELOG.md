@@ -5,6 +5,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.42] - 2026-09-06
+
+### Fixed
+
+- **The Version Panel Fetched The Proof And Withheld The Conclusion (`gui/app.js`)**:
+  - Nothing checks for a new version on startup, and that stays. The check belongs to the moment somebody asks for it, and opening the version panel from Settings is somebody asking.
+  - Opening it already went to GitHub, and came back with the release notes for every version newer than the installed one. It did not make the comparison. So the panel could sit there listing what is in a version you do not have, while its own header read "not checked for updates", the mark in the corner carried no dot, and there was no button to take it. Everything needed to say an update was waiting was on the screen, and the one sentence that says it was missing.
+  - Opening the panel now does the whole job: what is published, whether this installation is behind it, the notes for every version in between, and the update button when there is one. It asks once for the life of the window, because the unauthenticated GitHub API allows sixty requests an hour for the entire machine and the panel is opened far more often than a release is cut.
+  - Until it has been opened, the mark's tooltip says so and says that opening it checks. Not being told there is an update is not the same as there not being one.
+
+- **An Empty List Of Notes Claimed You Were Current (`gui/app.js`)**:
+  - Nothing newer, an update whose notes could not be read, and GitHub not answering at all arrive as the same empty list. The panel answered "You are on the latest version" to all three, so a lookup that failed told somebody they were up to date. Each of the three now says what actually happened.
+
+Nothing about the update itself changed. The self-update path, the window closing and reopening around it, and everything that carries it are untouched.
+
+### Changed
+
+- **The Readme Says How You Find Out (`README.md`)**:
+  - It described the channels and the in-place update and never said how somebody learns a new version exists, which is the question the panel is there to answer.
+
+---
+
 ## [1.0.41] - 2026-09-06
 
 ### Changed

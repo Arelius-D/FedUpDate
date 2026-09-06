@@ -1580,18 +1580,24 @@ function setDockProgress(taskName, terminalLine, percent, isIndeterminate = fals
 // Version corner. The installed version comes from the server, which reads the
 // stamp written when this copy was installed, so the interface cannot show a
 // stale hardcoded string.
-let versionState = { current: null, latest: null, updateAvailable: false, releases: null };
+let versionState = { current: null, latest: null, updateAvailable: false, releases: null, checked: false, reachable: false };
 
-async function loadVersionInfo() {
+// `check` decides whether this asks GitHub or only asks this machine. Opening
+// the window asks this machine, because starting an application is not asking
+// it to contact anybody. Opening the version panel asks GitHub, because that
+// click is somebody asking.
+async function loadVersionInfo({ check = false } = {}) {
   const badge = document.getElementById('appVersionBadge');
   const glyph = document.getElementById('versionGlyphBtn');
   const dot = document.getElementById('versionGlyphDot');
   const sub = document.getElementById('versionFlyoutSub');
   const updateBtn = document.getElementById('versionUpdateBtn');
 
+  if (check && sub) sub.textContent = 'Checking for a newer version...';
+
   let info = null;
   try {
-    const res = await fetch(`${API_BASE}/api/version`);
+    const res = await fetch(`${API_BASE}/api/version`, check ? { method: 'POST' } : undefined);
     info = await res.json();
   } catch (err) {
     console.warn("Version lookup failed:", err);
@@ -1606,6 +1612,10 @@ async function loadVersionInfo() {
   versionState.current = info.Current;
   versionState.latest = info.Latest;
   versionState.updateAvailable = info.UpdateAvailable === true;
+  // Whether anybody has been asked yet. The panel opens the moment this is
+  // false and does the asking, so it is never left saying it does not know.
+  versionState.checked = info.NotCheckedYet !== true;
+  versionState.reachable = info.RemoteReachable === true;
 
   if (badge) badge.textContent = `v${info.Current}`;
 
@@ -1639,7 +1649,8 @@ async function loadVersionInfo() {
   // The glyph carries the installed version on hover, so no text is needed
   // beside it in the corner.
   if (glyph) {
-    glyph.title = `FedUpDate ${summary}${sinceText} (${channel} channel)`;
+    const hint = versionState.checked ? '' : '. Open this to check';
+    glyph.title = `FedUpDate ${summary}${sinceText} (${channel} channel)${hint}`;
     glyph.classList.toggle('has-update', versionState.updateAvailable);
   }
   dot?.classList.toggle('hidden', !versionState.updateAvailable);
@@ -1672,8 +1683,23 @@ function renderReleaseNotes(releases) {
   const body = document.getElementById('versionFlyoutBody');
   if (!body) return;
 
+  // An empty list has three causes and they are not the same thing. There are
+  // no newer releases; or there is one and its notes could not be read; or
+  // GitHub could not be reached at all, which says nothing about either. This
+  // claimed the first of the three whichever had happened, so a failed lookup
+  // told somebody they were current when nothing had checked.
   if (!releases.length) {
-    body.innerHTML = `<div class="version-empty">You are on the latest version.</div>`;
+    let text;
+    if (!versionState.checked) {
+      text = 'Not checked yet.';
+    } else if (!versionState.reachable) {
+      text = 'GitHub could not be reached, so this could not be checked.';
+    } else if (versionState.updateAvailable) {
+      text = `Version ${escapeHtml(String(versionState.latest))} is available. Its notes could not be read.`;
+    } else {
+      text = 'You are on the latest version.';
+    }
+    body.innerHTML = `<div class="version-empty">${text}</div>`;
     return;
   }
 
@@ -1708,6 +1734,21 @@ async function toggleVersionFlyout() {
   const opening = flyout.classList.contains('hidden');
   flyout.classList.toggle('hidden', !opening);
   if (!opening) return;
+
+  // Opening this already went to GitHub for the release notes. It did not go
+  // for the comparison, so the panel could list the notes for a version newer
+  // than this one while its own header still said no check had been made, with
+  // no marker on the glyph and no button to take it. The notes were there and
+  // the one thing they were evidence of was not said. One click is one answer:
+  // what is published, whether this installation is behind it, and the button
+  // if it is.
+  //
+  // Asked once. The unauthenticated GitHub API allows sixty requests an hour
+  // for the whole machine, and the panel is opened far more often than a
+  // release is cut.
+  if (!versionState.checked) {
+    await loadVersionInfo({ check: true });
+  }
 
   renderReleaseNotes(await loadReleaseNotes());
 }
