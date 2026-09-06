@@ -1156,15 +1156,57 @@ async function updateSelectedPackages() {
 }
 
 // Watchdog Functions
+// An audit reads every setting the shield manages and reports what it found.
+// This used to keep one boolean out of all of it and throw the rest away, so a
+// person pressing Run Audit was told the machine was in its desired state
+// without being shown a single thing that had been looked at.
+function renderWatchdogAudit(audit) {
+  const panel = document.getElementById('watchdogAuditPanel');
+  const body = document.getElementById('watchdogAuditBody');
+  if (!panel || !body) return;
+
+  const items = Array.isArray(audit?.AuditItems) ? audit.AuditItems : [];
+  if (items.length === 0) { panel.hidden = true; return; }
+
+  body.innerHTML = items.map(i => {
+    // Three outcomes, not two. A setting that could not be read is not a
+    // setting that is correct, and saying so is the whole point.
+    const badge = !i.Readable
+      ? '<span class="badge-pill badge-recommended">Not readable</span>'
+      : (i.Drifted
+          ? '<span class="badge-pill badge-amber">Drifted</span>'
+          : '<span class="badge-pill badge-green">As set</span>');
+    return `
+      <tr>
+        <td style="font-weight: 600;">${escapeHtml(i.Name)}</td>
+        <td>${escapeHtml(String(i.Expected))}</td>
+        <td>${escapeHtml(String(i.Actual))}</td>
+        <td>${badge}</td>
+      </tr>`;
+  }).join('');
+  panel.hidden = false;
+}
+
 async function runWatchdogAudit() {
-  setDockProgress("Auditing", "Auditing Windows update service states and policies...", 40, true);
+  setDockProgress("Auditing", "Reading every setting the shield manages...", 40, true);
   try {
     const res = await fetch(`${API_BASE}/api/watchdog/audit`);
     const audit = await res.json();
     if (!state.scanData) state.scanData = {};
     state.scanData.WatchdogDrifted = audit.HasDrifted;
     updateDashboardUI();
-    setDockProgress("Audit Complete", audit.HasDrifted ? "Drift detected in Windows services." : "All policies in desired state.", 100, false);
+    renderWatchdogAudit(audit);
+
+    const total = Array.isArray(audit.AuditItems) ? audit.AuditItems.length : 0;
+    let summary;
+    if (audit.UnreadCount > 0) {
+      summary = `${audit.DriftCount} of ${total} drifted. ${audit.UnreadCount} could not be read.`;
+    } else if (audit.HasDrifted) {
+      summary = `${audit.DriftCount} of ${total} settings have drifted.`;
+    } else {
+      summary = `All ${total} settings are as you set them.`;
+    }
+    setDockProgress("Audit Complete", summary, 100, false);
   } catch (err) {
     setDockProgress("Error", `Watchdog audit failed: ${err.message}`, 0, false);
   }
@@ -1193,6 +1235,7 @@ async function enforceWatchdog(isWhatIf = false) {
       if (!state.scanData) state.scanData = {};
       state.scanData.WatchdogDrifted = audit.HasDrifted;
       updateDashboardUI();
+      renderWatchdogAudit(audit);
     } catch (e) {}
     await loadLedger();
   } catch (err) {

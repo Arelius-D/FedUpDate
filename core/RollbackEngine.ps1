@@ -378,6 +378,7 @@ function Record-FedRegistryChange {
                 }
             }
             Set-ItemProperty -Path $KeyPath -Name $ValueName -Value $NewValue -Type $ValueType -Force | Out-Null
+            $script:FedEnforceApplied++
             Write-FedLog "Set Registry [$KeyPath] '$ValueName' = '$NewValue'" -Level "INFO" -Component "Rollback"
         } catch {
             Write-FedLog "Failed to apply registry change [$KeyPath] '$ValueName': $_" -Level "ERROR" -Component "Rollback"
@@ -452,7 +453,8 @@ function Record-FedServiceChange {
                 if ($NewStartType -eq "Disabled" -and $service.Status -eq "Running") {
                     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
                 }
-                Write-FedLog "Configured Service '$ServiceName' -> StartupType: $NewStartType" -Level "INFO" -Component "Rollback"
+                $script:FedEnforceApplied++
+            Write-FedLog "Configured Service '$ServiceName' -> StartupType: $NewStartType" -Level "INFO" -Component "Rollback"
             }
         } catch {
             Write-FedLog "Failed to configure service '$ServiceName': $_" -Level "WARN" -Component "Rollback"
@@ -521,6 +523,7 @@ function Record-FedTaskChange {
                 } else {
                     Enable-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
                 }
+                $script:FedEnforceApplied++
                 Write-FedLog "Scheduled Task '$TaskPath$TaskName' -> $NewState" -Level "INFO" -Component "Rollback"
             }
         } catch {

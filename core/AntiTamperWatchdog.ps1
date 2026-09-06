@@ -9,115 +9,176 @@
 . "$PSScriptRoot\RollbackEngine.ps1"
 
 function Get-FedWatchdogAudit {
+    <#
+    .SYNOPSIS
+        Reads every setting the shield manages and reports what is there.
+    .DESCRIPTION
+        This used to examine three of the eleven settings the shield changes,
+        skip the rest without saying so, and report the machine in its desired
+        state on the strength of that. It also never asked for the rights it
+        needs to read the scheduled tasks, so those were not checked at all
+        rather than checked and found wanting.
+
+        An audit reads and reports. It changes nothing.
+    #>
     [CmdletBinding()]
-    param()
+    param(
+        # Reading the scheduled tasks needs elevation. Asked for it, an
+        # ordinary session re-enters elevated so the audit is complete rather
+        # than quietly partial.
+        [Parameter()]
+        [switch]$NoElevate
+    )
 
     $config = Get-FedConfig
-    $driftItems = [System.Collections.Generic.List[PSObject]]::new()
-    $auditItems = [System.Collections.Generic.List[PSObject]]::new()
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-    # 1. Check Windows Update Service (wuauserv)
-    $wuService = Get-Service -Name "wuauserv" -ErrorAction SilentlyContinue
-    if ($wuService) {
-        $expected = if ($config.watchdog.disableAutoUpdateService) { "Disabled" } else { "Manual" }
-        $actual = $wuService.StartType.ToString()
-        $isDrifted = ($config.watchdog.disableAutoUpdateService -and $actual -ne "Disabled")
-        
-        $item = [PSCustomObject]@{
-            Name     = "Windows Update Service (wuauserv)"
-            Type     = "Service"
-            Expected = $expected
-            Actual   = $actual
-            Status   = $wuService.Status.ToString()
-            Drifted  = $isDrifted
+    # Reading the scheduled tasks needs elevation. An ordinary session cannot
+    # see them, so an audit run from one examined the settings it could reach
+    # and said nothing about the rest, which is not an audit. It asks now, the
+    # way checking for Windows updates asks, and the answer comes back through a
+    # file because the elevated run is a separate process that then exits.
+    if (-not $isAdmin -and -not $NoElevate) {
+        try {
+            $scriptRoot = Split-Path -Parent $PSScriptRoot
+            $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+            $resultFile = Join-Path (Get-FedDataDirectory) "watchdog_audit.json"
+            if (Test-Path $resultFile) { Remove-Item $resultFile -Force -ErrorAction SilentlyContinue }
+
+            Write-FedLog "The scheduled tasks cannot be read without elevation. Asking for it so the audit is complete." -Level "INFO" -Component "Watchdog"
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" watchdog audit" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+
+            if ($null -ne $p -and $p.ExitCode -eq 0 -and (Test-Path $resultFile)) {
+                $raw = Get-Content -Path $resultFile -Raw -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                    Write-FedLog "Elevated audit finished." -Level "SUCCESS" -Component "Watchdog"
+                    return ($raw | ConvertFrom-Json)
+                }
+            }
+            Write-FedLog "The elevated audit did not return a result. Reporting only what this session can read." -Level "WARN" -Component "Watchdog"
+        } catch {
+            # Declining is an answer. The audit still runs, and says plainly
+            # which settings it could not see.
+            Write-FedLog "Elevation was declined. The scheduled tasks cannot be read, and are reported as unread rather than as correct." -Level "WARN" -Component "Watchdog"
         }
-        $auditItems.Add($item)
-        if ($isDrifted) { $driftItems.Add($item) }
     }
 
-    # 2. Check Delivery Optimization Service (DoSvc)
-    $doService = Get-Service -Name "DoSvc" -ErrorAction SilentlyContinue
-    if ($doService) {
-        $expected = if ($config.watchdog.disableDeliveryOptimization) { "Disabled" } else { "Manual" }
-        $actual = $doService.StartType.ToString()
-        $isDrifted = ($config.watchdog.disableDeliveryOptimization -and $actual -ne "Disabled")
-        
-        $item = [PSCustomObject]@{
-            Name     = "Delivery Optimization (DoSvc)"
-            Type     = "Service"
-            Expected = $expected
-            Actual   = $actual
-            Status   = $doService.Status.ToString()
-            Drifted  = $isDrifted
+    $items = [System.Collections.Generic.List[PSObject]]::new()
+    $unread = 0
+
+    Write-FedLog "Auditing the $((Get-FedManagedState).Count) settings the shield manages..." -Level "INFO" -Component "Watchdog"
+
+    foreach ($m in (Get-FedManagedState)) {
+        switch ($m.Kind) {
+            "Registry" {
+                # Whether this setting is wanted at all is the person's choice.
+                $wanted = [bool]$config.watchdog.enabled
+                $actual = $null
+                if (Test-Path $m.KeyPath) {
+                    $actual = (Get-ItemProperty -Path $m.KeyPath -Name $m.ValueName -ErrorAction SilentlyContinue).($m.ValueName)
+                }
+                $hive = if ($m.KeyPath -like "HKLM:*") { "HKLM" } else { "HKCU" }
+                $drifted = $wanted -and ($actual -ne $m.Value)
+                $items.Add([PSCustomObject]@{
+                    Name     = "$hive policy: $($m.ValueName)"
+                    Type     = "Registry"
+                    Expected = if ($wanted) { [string]$m.Value } else { "not enforced" }
+                    Actual   = if ($null -ne $actual) { [string]$actual } else { "not set" }
+                    Drifted  = $drifted
+                    Readable = $true
+                })
+            }
+
+            "Service" {
+                $wanted = if ($m.ServiceName -eq "wuauserv") { [bool]$config.watchdog.disableAutoUpdateService }
+                          else { [bool]$config.watchdog.disableDeliveryOptimization }
+                $svc = Get-Service -Name $m.ServiceName -ErrorAction SilentlyContinue
+                $actual = if ($svc) { $svc.StartType.ToString() } else { "not present" }
+                $drifted = $wanted -and ($actual -ne "Disabled")
+                $items.Add([PSCustomObject]@{
+                    Name     = "Service: $($m.ServiceName)"
+                    Type     = "Service"
+                    Expected = if ($wanted) { "Disabled" } else { "not enforced" }
+                    Actual   = $actual
+                    Drifted  = $drifted
+                    Readable = $true
+                })
+            }
+
+            "Task" {
+                $wanted = [bool]$config.watchdog.disableUpdateOrchestrator
+                $task = Get-ScheduledTask -TaskPath $m.TaskPath -TaskName $m.TaskName -ErrorAction SilentlyContinue
+                # Absent and invisible look the same from an ordinary session,
+                # and only one of them is a fact.
+                $readable = ($null -ne $task) -or $isAdmin
+                if (-not $readable) { $unread++ }
+                $actual = if ($task) { $task.State.ToString() } elseif ($isAdmin) { "not present" } else { "cannot be read without elevation" }
+                $drifted = $wanted -and $readable -and ($actual -ne "Disabled")
+                $items.Add([PSCustomObject]@{
+                    Name     = "Task: $($m.TaskName)"
+                    Type     = "ScheduledTask"
+                    Expected = if ($wanted) { "Disabled" } else { "not enforced" }
+                    Actual   = $actual
+                    Drifted  = $drifted
+                    Readable = $readable
+                })
+            }
         }
-        $auditItems.Add($item)
-        if ($isDrifted) { $driftItems.Add($item) }
     }
 
-    # 3. Check Windows Update Policy Registry (AUOptions / NoAutoUpdate)
-    $auPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
-    $auPathUser = "HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
-    $noAutoUpdateVal = $null
-    if (Test-Path $auPath) {
-        $noAutoUpdateVal = (Get-ItemProperty $auPath -Name "NoAutoUpdate" -ErrorAction SilentlyContinue).NoAutoUpdate
-    }
-    if ($null -eq $noAutoUpdateVal -and (Test-Path $auPathUser)) {
-        $noAutoUpdateVal = (Get-ItemProperty $auPathUser -Name "NoAutoUpdate" -ErrorAction SilentlyContinue).NoAutoUpdate
-    }
-    $expectedVal = if ($config.watchdog.enabled) { 1 } else { 0 }
-    $regDrifted = ($config.watchdog.enabled -and $noAutoUpdateVal -ne 1)
-
-    $itemReg = [PSCustomObject]@{
-        Name     = "Group Policy: NoAutoUpdate (Registry)"
-        Type     = "Registry"
-        Expected = "1 (Enforced Manual/FedUpDate)"
-        Actual   = if ($null -ne $noAutoUpdateVal) { $noAutoUpdateVal.ToString() } else { "Not Set (Windows Default)" }
-        Status   = "OK"
-        Drifted  = $regDrifted
-    }
-    $auditItems.Add($itemReg)
-    if ($regDrifted) { $driftItems.Add($itemReg) }
-
-    # 4. Check Scheduled Task: FedUpDate On-Boot Guard
+    # The shield's own boot guard. Not one of the managed settings, but the
+    # thing that keeps them applied, and nothing was showing whether it exists.
     $guardTask = Get-ScheduledTask -TaskName "FedUpDate-Watchdog-Enforcer" -ErrorAction SilentlyContinue
-    $taskInstalled = ($null -ne $guardTask)
-    $taskState = if ($taskInstalled) { $guardTask.State.ToString() } else { "Not Installed" }
+    $guardWanted = [bool]$config.watchdog.enforceOnBoot
+    $guardReadable = ($null -ne $guardTask) -or $isAdmin
+    if (-not $guardReadable) { $unread++ }
+    $guardState = if ($guardTask) { $guardTask.State.ToString() } elseif ($isAdmin) { "not installed" } else { "cannot be read without elevation" }
+    $items.Add([PSCustomObject]@{
+        Name     = "Boot guard (FedUpDate-Watchdog-Enforcer)"
+        Type     = "BootGuard"
+        Expected = if ($guardWanted) { "Ready" } else { "not required" }
+        Actual   = $guardState
+        Drifted  = $guardWanted -and $guardReadable -and ($guardState -ne "Ready")
+        Readable = $guardReadable
+    })
 
-    # The guard runs as SYSTEM, and its definition is readable only by SYSTEM
-    # and administrators. An ordinary session therefore cannot see it at all and
-    # is told nothing rather than told it is missing: reporting an absent guard
-    # from a session that could never have seen one would mark every standard
-    # user as permanently drifted.
-    #
-    # A guard that is genuinely absent still counts as drift, but only when this
-    # session is able to tell the difference.
-    $canSeeTasks = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    $wantsGuard = [bool]$config.watchdog.enforceOnBoot
-
-    if (-not $taskInstalled -and -not $canSeeTasks) {
-        $taskState = "Not visible without elevation"
+    foreach ($i in $items) {
+        if (-not $i.Readable) {
+            Write-FedLog "$($i.Name): could not be read from this session." -Level "WARN" -Component "Watchdog"
+        } elseif ($i.Drifted) {
+            Write-FedLog "$($i.Name): expected $($i.Expected), found $($i.Actual)." -Level "WARN" -Component "Watchdog"
+        } else {
+            Write-FedLog "$($i.Name): $($i.Actual)." -Level "INFO" -Component "Watchdog"
+        }
     }
 
-    $taskExpected = if ($wantsGuard) { "Ready" } else { "Not required" }
-    $taskDrifted = $wantsGuard -and $canSeeTasks -and (-not $taskInstalled -or $taskState -eq "Disabled")
-
-    $itemTask = [PSCustomObject]@{
-        Name     = "FedUpDate Boot Persistence Task"
-        Type     = "ScheduledTask"
-        Expected = $taskExpected
-        Actual   = $taskState
-        Status   = $taskState
-        Drifted  = $taskDrifted
+    $drifted = @($items | Where-Object { $_.Drifted })
+    if ($unread -gt 0) {
+        Write-FedLog "Audit finished. $($drifted.Count) setting(s) have drifted. $unread could not be read from this session; run the audit elevated to see them." -Level "WARN" -Component "Watchdog"
+    } else {
+        Write-FedLog "Audit finished. $($drifted.Count) of $($items.Count) setting(s) have drifted." -Level $(if ($drifted.Count -gt 0) { "WARN" } else { "SUCCESS" }) -Component "Watchdog"
     }
-    $auditItems.Add($itemTask)
-    if ($taskDrifted) { $driftItems.Add($itemTask) }
 
-    return [PSCustomObject]@{
-        HasDrifted = ($driftItems.Count -gt 0)
-        DriftCount = $driftItems.Count
-        DriftItems = @($driftItems)
-        AuditItems = @($auditItems)
+    $result = [PSCustomObject]@{
+        HasDrifted   = ($drifted.Count -gt 0)
+        DriftCount   = $drifted.Count
+        UnreadCount  = $unread
+        NeedsElevation = ($unread -gt 0)
+        GuardState   = $guardState
+        GuardInstalled = ($null -ne $guardTask)
+        DriftItems   = @($drifted)
+        AuditItems   = @($items)
     }
+
+    # An elevated run is a separate process that exits, so it leaves its answer
+    # where the session that asked for it can pick it up.
+    if ($isAdmin) {
+        try {
+            $result | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path (Get-FedDataDirectory) "watchdog_audit.json") -Encoding UTF8 -ErrorAction Stop
+        } catch { }
+    }
+
+    return $result
 }
 
 function Enforce-FedWatchdog {
@@ -145,6 +206,7 @@ function Enforce-FedWatchdog {
     }
 
     $config = Get-FedConfig
+    $script:FedEnforceApplied = 0
     $tx = New-FedTransaction -Description "Anti-Tamper Watchdog Policy Enforcement"
 
     # 1. Group Policy Registry Keys for Windows Update (HKLM & HKCU)
@@ -183,12 +245,15 @@ function Enforce-FedWatchdog {
     # An enforcement that found everything already in place used to say nothing
     # at all, leaving several silent seconds in the log with no account of what
     # had been looked at. Recording nothing is right; saying nothing is not.
-    $applied = @($tx.Changes).Count
+    # What was recorded is not what was applied. Since a setting's original is
+    # written down only once, this counted zero on every run after the first and
+    # announced that nothing had needed doing, directly beneath the lines saying
+    # it had just set six registry values and reconfigured a service.
     $managed = @(Get-FedManagedState).Count
-    if ($applied -eq 0) {
+    if ($script:FedEnforceApplied -eq 0) {
         Write-FedLog "Checked $managed setting(s). All were already as they should be." -Level "INFO" -Component "Watchdog"
     } else {
-        Write-FedLog "Checked $managed setting(s). $applied needed putting back." -Level "INFO" -Component "Watchdog"
+        Write-FedLog "Checked $managed setting(s). $($script:FedEnforceApplied) needed putting back." -Level "INFO" -Component "Watchdog"
     }
 
     # Commit Transaction to ledger for complete rollback capability

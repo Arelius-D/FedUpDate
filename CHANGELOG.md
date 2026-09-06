@@ -5,6 +5,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.35] - 2026-09-06
+
+### Fixed
+
+- **The Audit Examined Three Of The Eleven Settings It Was Auditing (`core/AntiTamperWatchdog.ps1`)**:
+  - The shield changes eleven things. The audit looked at three of them, plus its own boot guard, and reported the machine in its desired state on the strength of that. The four remaining registry values and the three scheduled tasks were not checked, not reported as unchecked, and not mentioned. Somebody pressing Run Audit was told their shield was healthy after a quarter of it had been examined.
+  - Every setting the shield manages is now read, and the list the audit reads is the same list the enforcement acts on, so the two cannot come to describe different machines.
+
+- **The Audit Asked For Nothing And Therefore Saw Nothing (`core/AntiTamperWatchdog.ps1`)**:
+  - Reading the scheduled tasks needs elevation. The audit never asked for it, so from an ordinary session it could not see them, and rather than saying so it simply left them out. There was no prompt because there was no intention to look.
+  - It asks now, the same way checking for Windows updates asks. The elevated run is a separate process that exits, so its answer is written down where the session that asked for it can pick it up. Declining is an answer: the audit still runs and reports those settings as unread rather than as correct.
+
+- **The Audit Reported Nothing It Had Found (`gui/app.js`, `gui/index.html`, `core/AntiTamperWatchdog.ps1`)**:
+  - It gathered a name, an expected value, an actual value and a verdict for each setting, and the interface kept one boolean out of all of it and discarded the rest. It also wrote nothing to the log, so an audit left no trace and could not be shown to have happened at all.
+  - Each setting is listed with what it should be, what it is, and whether it has drifted, could not be read, or is as it was set. Every one of them is written to the log as well, with a closing line saying how many drifted and how many could not be read.
+
+- **An Enforcement That Changed Eight Settings Reported That Nothing Needed Doing (`core/AntiTamperWatchdog.ps1`, `core/RollbackEngine.ps1`)**:
+  - The summary counted what had been recorded rather than what had been applied. Since a setting's original is written down only once, that count is zero on every run after the first, so a run that had just set six registry values, reconfigured a service and disabled a task announced that everything was already as it should be, four seconds after the lines saying otherwise.
+  - It counts what it actually put back.
+
+---
+
 ## [1.0.34] - 2026-09-06
 
 ### Fixed
