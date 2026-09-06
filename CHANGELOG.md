@@ -5,6 +5,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.38] - 2026-09-06
+
+### Fixed
+
+- **Uninstalling Left The Boot Guard Running, And Said It Had Removed It (`core/AntiTamperWatchdog.ps1`, `core/Engine.psm1`)**:
+  - The guard is a scheduled task that runs as SYSTEM and re-applies the update settings on a timer. Removing it needs administrator rights. The uninstall asked for the deletion, discarded whatever came back, never looked at whether it had worked, and reported success either way. From an ordinary session the deletion is refused, so the guard survived every uninstall while being reported as removed each time.
+  - What that means in practice is worse than it sounds. The application is gone, its folder is gone, and a task belonging to it is still running as SYSTEM every quarter of an hour, still turning off the update service and still writing the policy values, on a machine whose owner uninstalled it. Installing again after that and simply opening the window was enough to see the settings applied by something nobody had asked anything of.
+  - The deletion is attempted, and then the task is asked for again to see whether it is actually gone. If it is still there, administrator rights are asked for and the deletion is retried. Only a task that is genuinely absent afterwards is reported as removed. One that could not be removed is reported as still registered, with what it will keep doing and the command to remove it by hand.
+  - Being refused when asking about the task is no longer read as the task being absent. An ordinary session is denied when it asks about anything owned by SYSTEM, and denied is not the same as missing. Reading it as missing is what let this go unnoticed.
+
+---
+
 ## [1.0.37] - 2026-09-06
 
 ### Fixed

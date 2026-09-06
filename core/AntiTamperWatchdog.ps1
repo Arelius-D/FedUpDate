@@ -406,13 +406,66 @@ function Uninstall-FedWatchdogTask {
         return $true
     }
 
+    # Nothing to remove is a clean outcome, and an ordinary session cannot see
+    # the task to tell, so the deletion is attempted and then checked.
     try {
         $null = & schtasks.exe /Delete /TN $taskName /F 2>&1
+    } catch { }
+
+    if (-not (Test-FedWatchdogTaskExists -TaskName $taskName)) {
         Write-FedLog "Unregistered watchdog task '$taskName'." -Level "SUCCESS" -Component "Watchdog"
         return $true
-    } catch {
-        return $false
     }
+
+    # The task runs as SYSTEM, and deleting it needs administrator rights.
+    # Without them the deletion is refused, and that refusal used to be
+    # discarded while success was reported anyway. So the guard outlived every
+    # uninstall, kept running on its timer as SYSTEM, and went on re-applying
+    # settings to a machine whose owner had removed the application. An
+    # uninstalled program that still changes the machine on a schedule is the
+    # worst thing this could possibly leave behind.
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        try {
+            Write-FedLog "Removing the boot guard needs administrator rights. Asking for them." -Level "INFO" -Component "Watchdog"
+            $p = Start-Process -FilePath "schtasks.exe" -ArgumentList "/Delete /TN `"$taskName`" /F" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+            if (-not (Test-FedWatchdogTaskExists -TaskName $taskName)) {
+                Write-FedLog "Unregistered watchdog task '$taskName'." -Level "SUCCESS" -Component "Watchdog"
+                return $true
+            }
+        } catch {
+            Write-FedLog "Elevation was declined, so the boot guard is still registered." -Level "WARN" -Component "Watchdog"
+        }
+    }
+
+    # Said plainly, because the consequence is that something keeps running.
+    Write-FedLog "The boot guard '$taskName' could not be removed and is still registered. It runs as SYSTEM and will keep re-applying these settings. Remove it from an elevated session with: schtasks /Delete /TN `"$taskName`" /F" -Level "ERROR" -Component "Watchdog"
+    return $false
 }
 
-Export-ModuleMember -Function Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask -ErrorAction SilentlyContinue
+function Test-FedWatchdogTaskExists {
+    <#
+    .SYNOPSIS
+        Whether the boot guard is registered, from a session that may not see it.
+    .DESCRIPTION
+        An ordinary session is refused when it asks about a task owned by
+        SYSTEM. Refused is not the same as absent, and treating it as absent is
+        how a guard that could not be deleted came to be reported as deleted.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TaskName
+    )
+
+    $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($t) { return $true }
+
+    # schtasks distinguishes the two cases in a way the cmdlet does not: being
+    # told access is denied means there is something there to be denied about.
+    $out = (& schtasks.exe /Query /TN $TaskName 2>&1 | Out-String)
+    if ($out -match 'Access is denied') { return $true }
+    return $false
+}
+
+Export-ModuleMember -Function Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists -ErrorAction SilentlyContinue
