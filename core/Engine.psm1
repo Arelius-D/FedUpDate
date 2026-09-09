@@ -23,7 +23,15 @@ function Start-FedScan {
 
     Write-FedLog "=== Starting Unified FedUpDate System Audit ===" -Level "INFO" -Component "Engine"
 
-    $osUpdates = @(Get-FedOSUpdates -IncludeDefender:([bool]$IncludeDefender))
+    # Elevated, this is the process an unelevated window asked to look on its
+    # behalf. Lifted and online it can actually see what Windows Update has;
+    # unelevated it reads what the last such check wrote down.
+    $scanIsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $osUpdates = if ($scanIsAdmin) {
+        @(Invoke-FedWithShieldLifted -Action { @(Get-FedOSUpdates -IncludeDefender:([bool]$IncludeDefender) -Online) })
+    } else {
+        @(Get-FedOSUpdates -IncludeDefender:([bool]$IncludeDefender))
+    }
     $wingetUpdates = @(Get-FedWingetUpdates)
     $storeStatus = Get-FedStoreStatus
     $rebootState = Get-FedRebootState
@@ -129,9 +137,16 @@ function Start-FedUpdate {
     }
 
     # 4. Anti-Tamper Enforcement
+    #    The Windows Update phase lifts the shield for its duration and restores
+    #    it before returning, and says so. Enforcing again here would only raise
+    #    a second elevation prompt to re-apply what is already applied.
     if ($config.watchdog.enabled) {
-        Write-FedLog "--- Enforcing Anti-Tamper State after updates ---" -Level "INFO" -Component "Engine"
-        Enforce-FedWatchdog -WhatIf:$WhatIf | Out-Null
+        if ($runOS -and $results.OSResult -and $results.OSResult.ShieldRestored) {
+            Write-FedLog "--- Anti-Tamper State already restored by the Windows Update phase ---" -Level "INFO" -Component "Engine"
+        } else {
+            Write-FedLog "--- Enforcing Anti-Tamper State after updates ---" -Level "INFO" -Component "Engine"
+            Enforce-FedWatchdog -WhatIf:$WhatIf | Out-Null
+        }
     }
 
     # 5. Smart Reboot Evaluation
@@ -142,4 +157,4 @@ function Start-FedUpdate {
     return $results
 }
 
-Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedFriendlyAge, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Update-FedConfig, Reset-FedConfig, Get-FedRebootState, Get-FedRebootSignalData, Get-FedRebootVerdict, ConvertFrom-FedPendingFileRename, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedManagedState, Save-FedInstallBaseline, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Get-FedOSScanState, Invoke-FedElevatedOSScan, Get-FedOSScanCache, Save-FedOSScanCache, Clear-FedOSScanCache, Get-FedOSInstallResult, Save-FedOSInstallResult, Clear-FedOSInstallResult, Get-FedUpdateResultText, Get-FedUpdateArticleUrl, Get-FedUpdateArticleNote, Remove-FedUrlLocale, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Set-FedVersionStamp, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate, Get-FedUpdateChannel, Get-FedChannelBranch, Get-FedInstallScriptUrl, Get-FedBranchPosition -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedFriendlyAge, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Update-FedConfig, Reset-FedConfig, Get-FedRebootState, Get-FedRebootSignalData, Get-FedRebootVerdict, ConvertFrom-FedPendingFileRename, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedManagedState, Test-FedWatchdogSuspended, Suspend-FedWatchdog, Invoke-FedWithShieldLifted, Save-FedInstallBaseline, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Get-FedOSScanState, Invoke-FedElevatedOSScan, Get-FedOSScanCache, Save-FedOSScanCache, Clear-FedOSScanCache, Get-FedOSInstallResult, Save-FedOSInstallResult, Clear-FedOSInstallResult, Get-FedUpdateResultText, Get-FedUpdateArticleUrl, Get-FedUpdateArticleNote, Remove-FedUrlLocale, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Set-FedVersionStamp, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate, Get-FedUpdateChannel, Get-FedChannelBranch, Get-FedInstallScriptUrl, Get-FedBranchPosition -ErrorAction SilentlyContinue

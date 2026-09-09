@@ -346,6 +346,12 @@ function Save-FedOSInstallResult {
     )
 
     try {
+        # Written from inside the lift, whose finally block restores the shield
+        # before this process exits. The parent reads this and skips its own
+        # enforcement rather than prompting again for something already done.
+        if ($null -ne $Result) {
+            Add-Member -InputObject $Result -MemberType NoteProperty -Name ShieldRestored -Value ($script:FedShieldLiftDepth -gt 0) -Force
+        }
         $Result | ConvertTo-Json -Depth 6 | Set-Content -Path (Get-FedOSInstallResultFile) -Encoding UTF8 -ErrorAction Stop
     } catch {
         Write-FedLog "Could not record the installation result: $_" -Level "WARN" -Component "OSUpdate"
@@ -414,7 +420,10 @@ function Get-FedOSUpdates {
     $results = [System.Collections.Generic.List[PSObject]]::new()
 
     try {
-        $onlineFlag = [bool]$Online.IsPresent
+        # Inside a lifted shield the search asks Windows Update directly. The
+        # shield is lifted precisely so that a real answer is possible, and the
+        # local catalogue is frozen by the shield the rest of the time.
+        $onlineFlag = [bool]$Online.IsPresent -or ($script:FedShieldLiftDepth -gt 0)
         $searchJob = Start-Job -ScriptBlock {
             param([bool]$isOnline)
             try {
@@ -571,6 +580,41 @@ function Get-FedOSUpdates {
 }
 
 function Install-FedOSUpdates {
+    <#
+    .SYNOPSIS
+        Installs pending Windows updates with the shield lifted for the run.
+    .DESCRIPTION
+        The Update Agent cannot detect, download or install while the shield
+        is up. Elevated, the whole operation runs inside a lift that restores
+        the shield afterwards, including on failure. Unelevated, the core hands
+        the work to an elevated process, which lifts for itself.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [array]$UpdatesToInstall,
+
+        [Parameter()]
+        [switch]$UpdateDefender = $true,
+
+        [Parameter()]
+        [switch]$WhatIf
+    )
+
+    $bound = $PSBoundParameters
+    $script:FedShieldRestored = $false
+
+    $result = Invoke-FedWithShieldLifted -WhatIf:$WhatIf -Action {
+        Install-FedOSUpdatesCore @bound
+    }
+
+    if ($null -ne $result) {
+        Add-Member -InputObject $result -MemberType NoteProperty -Name ShieldRestored -Value ([bool]$script:FedShieldRestored) -Force
+    }
+    return $result
+}
+
+function Install-FedOSUpdatesCore {
     [CmdletBinding()]
     param(
         [Parameter()]
@@ -677,6 +721,7 @@ function Install-FedOSUpdates {
                     FailCount      = $failed
                     RebootRequired = [bool]$rebootState.IsRebootRequired
                     Error          = $childResult.Error
+                    ShieldRestored = [bool]$childResult.ShieldRestored
                 }
             }
             Write-FedLog "Elevated Windows Update installation did not complete (exit code $($p.ExitCode))." -Level "WARN" -Component "OSUpdate"
@@ -722,7 +767,7 @@ function Install-FedOSUpdates {
                 # The two then disagreed about what was pending, so the list a
                 # person was looking at was not the list being installed.
                 $searcher.ServerSelection = 0
-                $searcher.Online = $false
+                $searcher.Online = $true
                 $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0")
 
                 $collection = New-Object -ComObject Microsoft.Update.UpdateColl
@@ -959,7 +1004,7 @@ function Invoke-FedElevatedOSScan {
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        return @(Get-FedOSUpdates)
+        return Invoke-FedWithShieldLifted -Action { @(Get-FedOSUpdates -Online) }
     }
 
     try {

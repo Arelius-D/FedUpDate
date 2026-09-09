@@ -5,6 +5,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.44] - 2026-09-09
+
+### Fixed
+
+- **Windows Updates Invisible While the Shield Is Enabled (`core/AntiTamperWatchdog.ps1`, `core/OSUpdateEngine.ps1`, `core/Engine.psm1`)**:
+  - With the shield up, Windows never refreshes its own update catalogue, and every scan read that frozen catalogue. A new update therefore appeared on the system's update screen while FedUpDate went on reporting none, and an update run installed nothing. The run re-applied the shield when it finished but never lifted it when it started; the only thing it lifted was the update service, for a few seconds.
+  - The shield is now lifted for the duration of every elevated Windows Update operation, the scan as well as the install, and restored in a `finally` block so a failure or cancellation cannot leave it down. Inside the lift the search asks Windows Update directly instead of reading the local catalogue, and the install searches the same way, so what is detected is what is installed.
+  - The two settings that stop Windows rebooting on its own stay enforced throughout. They do not block updating, and lifting them during an install is how a machine restarts in the middle of one.
+  - The lift is not written to the ledger. It is temporary, and recording it is how a later rollback ends up re-applying values it was meant to remove.
+  - The periodic guard, which runs every thirty minutes, now recognises a lift in progress and leaves it alone rather than disabling the update service underneath a download. A lift record expires after two hours, so a run that died without restoring cannot stand the guard down indefinitely.
+  - The elevated phase reports that it restored the shield, and the run no longer raises a second elevation prompt to enforce what is already enforced.
+
+---
+
 ## [1.0.43] - 2026-09-06
 
 ### Fixed

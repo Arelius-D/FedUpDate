@@ -47,6 +47,8 @@ function Set-FedWatchdogState {
         IntervalMinutes = 15
         LastRun         = $null
         LastRunApplied  = 0
+        Suspended       = $false
+        SuspendedAt     = $null
     }
     if ($current) {
         foreach ($k in @($state.Keys)) {
@@ -331,6 +333,164 @@ function Get-FedWatchdogAudit {
     return $result
 }
 
+function Test-FedWatchdogSuspended {
+    <#
+    .SYNOPSIS
+        Whether an update run currently has the shield lifted.
+    .DESCRIPTION
+        True only for a recent, unexpired lift. Two hours is longer than any
+        run should take and short enough that a run which crashed without
+        restoring does not leave the guard standing down indefinitely: the next
+        guard tick after expiry re-arms the shield as usual.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $state = Get-FedWatchdogState
+    if ($null -eq $state -or -not $state.Suspended) { return $false }
+
+    try {
+        $since = [datetime]::Parse([string]$state.SuspendedAt)
+        return ((Get-Date) - $since).TotalHours -lt 2
+    } catch {
+        return $false
+    }
+}
+
+function Suspend-FedWatchdog {
+    <#
+    .SYNOPSIS
+        Lifts the shield so Windows Update can detect, download and install.
+    .DESCRIPTION
+        The exact inverse of enforcement, for the duration of an update run.
+        With the shield up, Windows never refreshes its own update catalogue,
+        so a scan reads a frozen list and reports nothing while the system's
+        update screen shows a new KB. Everything that stops detection and
+        installation is put back to the Windows default here.
+
+        Two settings are deliberately left enforced: the two that stop Windows
+        rebooting on its own. They do not block updating, and lifting them
+        during an install is how a machine restarts in the middle of one.
+
+        Nothing here is written to the ledger. This is a temporary lift, not a
+        change of state, and recording it is how a later rollback ends up
+        re-applying values it was meant to remove.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-FedLog "The shield cannot be lifted without elevation." -Level "WARN" -Component "Watchdog"
+        return $false
+    }
+
+    $keepEnforced = @("NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime")
+    $lifted = 0
+
+    foreach ($item in @(Get-FedManagedState)) {
+        try {
+            switch ($item.Kind) {
+                "Registry" {
+                    if ($keepEnforced -contains $item.ValueName) { continue }
+                    if (Test-Path $item.KeyPath) {
+                        $existing = Get-ItemProperty -Path $item.KeyPath -Name $item.ValueName -ErrorAction SilentlyContinue
+                        if ($null -ne $existing) {
+                            Remove-ItemProperty -Path $item.KeyPath -Name $item.ValueName -Force -ErrorAction Stop
+                            $lifted++
+                        }
+                    }
+                }
+                "Service" {
+                    $svc = Get-Service -Name $item.ServiceName -ErrorAction SilentlyContinue
+                    if ($null -eq $svc) { continue }
+                    if ($item.ServiceName -eq "wuauserv") {
+                        if ($svc.StartType -eq "Disabled") { Set-Service -Name $svc.Name -StartupType Manual -ErrorAction Stop; $lifted++ }
+                        if ($svc.Status -ne "Running") { Start-Service -Name $svc.Name -ErrorAction SilentlyContinue }
+                    } elseif ($svc.StartType -eq "Disabled") {
+                        Set-Service -Name $svc.Name -StartupType Automatic -ErrorAction Stop
+                        $lifted++
+                    }
+                }
+                "Task" {
+                    $task = Get-ScheduledTask -TaskPath $item.TaskPath -TaskName $item.TaskName -ErrorAction SilentlyContinue
+                    if ($null -ne $task -and $task.State -eq "Disabled") {
+                        Enable-ScheduledTask -TaskPath $item.TaskPath -TaskName $item.TaskName -ErrorAction Stop | Out-Null
+                        $lifted++
+                    }
+                }
+            }
+        } catch {
+            Write-FedLog "Could not lift $($item.Kind) $($item.ValueName)$($item.ServiceName)$($item.TaskName): $_" -Level "WARN" -Component "Watchdog"
+        }
+    }
+
+    Set-FedWatchdogState -Values @{
+        Suspended   = $true
+        SuspendedAt = (Get-Date).ToString("o")
+    }
+
+    Write-FedLog "Shield lifted for the update run: $lifted setting(s) returned to the Windows default. Reboot protection stays on." -Level "INFO" -Component "Watchdog"
+    return $true
+}
+
+function Invoke-FedWithShieldLifted {
+    <#
+    .SYNOPSIS
+        Runs a scriptblock with the shield lifted, then restores it.
+    .DESCRIPTION
+        Restoration is in a finally block: if the work throws, is cancelled or
+        times out, the shield still goes back up. Re-entrant, so a scan that
+        runs inside an install does not lift twice or restore early.
+
+        Without elevation, without the shield enabled, or under WhatIf, the
+        work simply runs and nothing is touched.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Action,
+
+        [switch]$WhatIf
+    )
+
+    if ($null -eq $script:FedShieldLiftDepth) { $script:FedShieldLiftDepth = 0 }
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $config = Get-FedConfig
+    $shieldOn = [bool]($config.watchdog -and $config.watchdog.enabled)
+
+    if ($WhatIf -or -not $isAdmin -or -not $shieldOn) {
+        return & $Action
+    }
+
+    if ($script:FedShieldLiftDepth -gt 0) {
+        $script:FedShieldLiftDepth++
+        try { return & $Action } finally { $script:FedShieldLiftDepth-- }
+    }
+
+    $script:FedShieldLiftDepth = 1
+    [void](Suspend-FedWatchdog)
+    try {
+        return & $Action
+    } finally {
+        $script:FedShieldLiftDepth = 0
+        # Cleared before enforcing, or enforcement would see the lift and
+        # decline to do anything. Cleared even if enforcement then fails, so
+        # the periodic guard becomes the backstop rather than a stale flag
+        # standing it down.
+        Set-FedWatchdogState -Values @{ Suspended = $false; SuspendedAt = $null }
+        try {
+            Write-FedLog "Restoring the shield after the update run." -Level "INFO" -Component "Watchdog"
+            Enforce-FedWatchdog | Out-Null
+            $script:FedShieldRestored = $true
+        } catch {
+            $script:FedShieldRestored = $false
+            Write-FedLog "The shield could not be restored after the update run: $_ Run the watchdog enforce command. The periodic guard will also re-arm it." -Level "ERROR" -Component "Watchdog"
+        }
+    }
+}
+
 function Enforce-FedWatchdog {
     [CmdletBinding()]
     param(
@@ -339,6 +499,19 @@ function Enforce-FedWatchdog {
     )
 
     Write-FedLog "Executing Anti-Tamper State Enforcement..." -Level "INFO" -Component "Watchdog"
+
+    # An update run lifts the shield for its duration and records that it did.
+    # This function is also what the boot guard runs every thirty minutes, and
+    # an installation can take longer than that. Re-arming the shield here
+    # would disable the update service underneath a download in progress. The
+    # run restores the shield itself when it finishes, or when it fails.
+    #
+    # The record expires. A run that died without restoring leaves the flag
+    # behind, and the guard must not honour a stale one forever.
+    if (Test-FedWatchdogSuspended) {
+        Write-FedLog "The shield is lifted for an update run in progress. Leaving it lifted; the run restores it." -Level "INFO" -Component "Watchdog"
+        return $true
+    }
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin -and -not $WhatIf) {
