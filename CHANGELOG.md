@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.47] - 2026-09-10
+
+### Fixed
+
+- **An Update Held For A Restart Was Still Listed As Pending (`core/OSUpdateEngine.ps1`)**:
+  - The rule from 1.0.45 counted an update as installed and waiting only when Windows' own history recorded it as succeeded. Windows does not record it that way. An install that is waiting for a restart is recorded as in progress, with the result code that means the post-reboot step is still pending, and only after the restart as succeeded. So the rule never fired for the case it was written for, and the updates it was built around went on being counted as pending.
+  - The rule now accepts what Windows actually writes. It lives inside the scan as a named function, and a gate feeds it the exact entries this was found on: in progress with the post-reboot code, succeeded, failed, in progress for another reason, an install from before the last boot, and an uninstall.
+
+---
+
 ## [1.0.46] - 2026-09-10
 
 ### Fixed

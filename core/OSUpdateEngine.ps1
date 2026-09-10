@@ -461,6 +461,27 @@ function Get-FedOSUpdates {
                 # just installed. Windows' own history says what it installed
                 # since the last boot, and it only counts while Windows itself
                 # says a restart is owed. History entries are kept in UTC.
+                #
+                # Windows does not record such an install as succeeded. It
+                # records it as in progress, with the HResult that means the
+                # post-reboot step is still pending, and only after the
+                # restart as succeeded. A rule that accepted succeeded alone
+                # never fired for the one case it was written for.
+                function Test-FedHeldForRestart {
+                    param($Operation, $ResultCode, $HResult, [datetime]$Applied, [datetime]$BootedAt)
+                    if ([int]$Operation -ne 1) { return $false }
+                    if ($Applied -le $BootedAt) { return $false }
+                    $code = [int]$ResultCode
+                    if ($code -eq 2 -or $code -eq 3) { return $true }
+                    # WU_E_UH_POSTREBOOTSTILLPENDING, 0x80242014, whichever sign it
+                    # arrives with. Written in decimal: a hex literal this large
+                    # is a negative 32-bit number to PowerShell, and a mask
+                    # written as 0xFFFFFFFF is minus one, which masks nothing.
+                    $postRebootPending = [int64]2149851156
+                    $low32 = [int64]4294967295
+                    if ($code -eq 1 -and (([int64]$HResult -band $low32) -eq $postRebootPending)) { return $true }
+                    return $false
+                }
                 $heldForRestart = @()
                 try {
                     if ([bool](New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) {
@@ -470,7 +491,7 @@ function Get-FedOSUpdates {
                         if ($window -gt 0) {
                             foreach ($h in $srch.QueryHistory(0, $window)) {
                                 $applied = [datetime]::SpecifyKind([datetime]$h.Date, [System.DateTimeKind]::Utc)
-                                if ($h.Operation -eq 1 -and ($h.ResultCode -eq 2 -or $h.ResultCode -eq 3) -and $applied -gt $bootedAt) {
+                                if (Test-FedHeldForRestart -Operation $h.Operation -ResultCode $h.ResultCode -HResult $h.HResult -Applied $applied -BootedAt $bootedAt) {
                                     $heldForRestart += [string]$h.UpdateIdentity.UpdateID
                                 }
                             }
