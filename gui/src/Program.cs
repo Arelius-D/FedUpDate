@@ -111,6 +111,23 @@ namespace FedUpDate.UI
         private bool _splashMinimumElapsed;
         private bool _appReported;
 
+        // Where the interface is served from is read from the server, not
+        // guessed. The server binds the first free port in its range and
+        // writes it to a file named after this process; this window reads
+        // that file. Before, the window probed six ports while the server
+        // could take any of fifty one, and a busy first port left the window
+        // pointed at nothing, borderless, with no way to close it.
+        private const int ServerPortLow = 58100;
+        private const int ServerPortHigh = 58150;
+        private const int PortFileWaitMs = 30000;
+        private Grid _failureGrid;
+        private TextBlock _failureReason;
+        private TextBlock _failureDetail;
+        private bool _failureShown;
+        private bool _awaitingInterface;
+        private int _attempt;
+        private string _serverStartError;
+
         public MainWindow()
         {
             Title = "FedUpDate";
@@ -153,6 +170,9 @@ namespace FedUpDate.UI
 
             _splashGrid = CreateNativeSplashView();
             _rootGrid.Children.Add(_splashGrid);
+
+            _failureGrid = CreateFailureView();
+            _rootGrid.Children.Add(_failureGrid);
 
             Content = _rootGrid;
 
@@ -280,6 +300,11 @@ namespace FedUpDate.UI
                 }
                 scriptPath = Path.GetFullPath(scriptPath);
 
+                // A file left by an earlier process with this same id would
+                // be read as this server's answer.
+                try { File.Delete(ServerPortFilePath()); } catch { }
+                _serverStartError = null;
+
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
@@ -292,7 +317,11 @@ namespace FedUpDate.UI
 
                 _serverProcess = Process.Start(psi);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _serverProcess = null;
+                _serverStartError = ex.Message;
+            }
         }
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -345,76 +374,326 @@ namespace FedUpDate.UI
                             OpenInDefaultBrowser(args.Uri);
                         }
                     };
-                }
 
-                // The splash is held for a minimum so the branding is actually
-                // seen, and released once the interface reports that its first
-                // audit has finished. A ceiling covers the case where that
-                // report never arrives, so a stalled backend cannot leave the
-                // window showing a splash indefinitely.
-                #pragma warning disable 4014
-                Task.Delay(SplashMinimumMs).ContinueWith(t =>
-                {
-                    try
+                    // The first load of the interface either arrives or it
+                    // does not, and one that did not used to leave the
+                    // browser's own error page inside a window that draws no
+                    // frame. Only the load this window asked for is judged;
+                    // a link cancelled on its way to the browser is not a
+                    // failure.
+                    _webView.CoreWebView2.NavigationCompleted += (s, args) =>
                     {
-                        Dispatcher.Invoke(new Action(delegate
+                        if (!_awaitingInterface) return;
+                        _awaitingInterface = false;
+                        if (!args.IsSuccess && args.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
                         {
-                            _splashMinimumElapsed = true;
-                            LogHost("Splash minimum elapsed.");
-                            if (_appReported) DismissNativeSplash();
-                        }));
-                    }
-                    catch { }
-                });
-                Task.Delay(SplashCeilingMs).ContinueWith(t =>
-                {
-                    try
-                    {
-                        Dispatcher.Invoke(new Action(DismissNativeSplash));
-                    }
-                    catch { }
-                });
-                #pragma warning restore 4014
-
-                // Quick connect to server port in background task
-                string serverUrl = await Task.Run(() =>
-                {
-                    for (int i = 0; i < 100; i++)
-                    {
-                        for (int p = 58100; p <= 58105; p++)
-                        {
-                            try
-                            {
-                                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://localhost:" + p + "/");
-                                req.Timeout = 150;
-                                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                                {
-                                    if (resp.StatusCode == HttpStatusCode.OK)
-                                    {
-                                        return "http://localhost:" + p + "/";
-                                    }
-                                }
-                            }
-                            catch { }
+                            ShowFailure("The interface page could not be loaded.",
+                                "The browser control reported " + args.WebErrorStatus + ".");
                         }
-                        Thread.Sleep(30);
-                    }
-                    return "http://localhost:58100/";
-                });
-
-                if (_webView.CoreWebView2 != null)
-                {
-                    _webView.CoreWebView2.Navigate(serverUrl);
+                    };
                 }
-                else
+
+            }
+            catch (Exception ex)
+            {
+                // Without the browser runtime there is nothing to load the
+                // page into. Said as such, rather than left as a blank window.
+                ShowFailure("The Microsoft Edge WebView2 runtime could not be started on this computer.", ex.Message);
+                return;
+            }
+
+            BeginConnect();
+        }
+
+        // One attempt to bring the interface up: show the splash, learn where
+        // the server is, load the page. The splash is held for a minimum so
+        // the branding is actually seen, and released once the interface
+        // reports that its first audit has finished; a ceiling covers the case
+        // where that report never arrives, so a stalled backend cannot leave
+        // the window showing a splash indefinitely. Refresh on the failure
+        // screen runs all of this again, starting a server that has gone.
+        private async void BeginConnect()
+        {
+            int attempt = ++_attempt;
+            _appReported = false;
+            _splashMinimumElapsed = false;
+            _awaitingInterface = false;
+            ShowSplash();
+
+            #pragma warning disable 4014
+            Task.Delay(SplashMinimumMs).ContinueWith(t =>
+            {
+                try
                 {
-                    _webView.Source = new Uri(serverUrl);
+                    Dispatcher.Invoke(new Action(delegate
+                    {
+                        if (attempt != _attempt) return;
+                        _splashMinimumElapsed = true;
+                        LogHost("Splash minimum elapsed.");
+                        if (_appReported) DismissNativeSplash();
+                    }));
+                }
+                catch { }
+            });
+            Task.Delay(SplashCeilingMs).ContinueWith(t =>
+            {
+                try
+                {
+                    Dispatcher.Invoke(new Action(delegate
+                    {
+                        if (attempt != _attempt) return;
+                        DismissNativeSplash();
+                    }));
+                }
+                catch { }
+            });
+            #pragma warning restore 4014
+
+            if (_serverProcess == null || _serverProcess.HasExited)
+            {
+                StartBackendServer();
+            }
+
+            ServerLookup lookup = await Task.Run(() => LocateServer());
+            if (attempt != _attempt) return;
+
+            if (lookup.Url == null)
+            {
+                ShowFailure(lookup.Reason, lookup.Detail);
+                return;
+            }
+
+            LogHost("Interface server found at " + lookup.Url);
+            _awaitingInterface = true;
+            if (_webView.CoreWebView2 != null)
+            {
+                _webView.CoreWebView2.Navigate(lookup.Url);
+            }
+            else
+            {
+                _webView.Source = new Uri(lookup.Url);
+            }
+        }
+
+        private class ServerLookup
+        {
+            public string Url;
+            public string Reason;
+            public string Detail;
+        }
+
+        private static string ServerPortFilePath()
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FedUpDate");
+            return Path.Combine(dir, "gui-port-" + Process.GetCurrentProcess().Id + ".txt");
+        }
+
+        // Where the server is, or why it cannot be found. The server writes
+        // the port it took to a file named after this process as soon as it
+        // has one, and the window reads that rather than guessing. A server
+        // that stopped, or never wrote, is reported as that.
+        private ServerLookup LocateServer()
+        {
+            ServerLookup found = new ServerLookup();
+            if (_serverProcess == null)
+            {
+                found.Reason = "The interface server could not be started.";
+                found.Detail = string.IsNullOrEmpty(_serverStartError) ? "Windows PowerShell did not start." : _serverStartError;
+                return found;
+            }
+
+            string portFile = ServerPortFilePath();
+            Stopwatch clock = Stopwatch.StartNew();
+            int port = 0;
+            while (clock.ElapsedMilliseconds < PortFileWaitMs)
+            {
+                if (_serverProcess.HasExited)
+                {
+                    found.Reason = "The interface server stopped before the interface came up.";
+                    found.Detail = "It exited with code " + _serverProcess.ExitCode + ". The log in data\\logs\\fedupdate.log says why.";
+                    return found;
+                }
+                if (port == 0) port = ReadPortFile(portFile);
+                if (port > 0 && ServerAnswers(port, 1000))
+                {
+                    found.Url = "http://localhost:" + port + "/";
+                    return found;
+                }
+                Thread.Sleep(100);
+            }
+
+            // A server that never said which port it took is looked for on
+            // every port it could have taken.
+            for (int p = ServerPortLow; p <= ServerPortHigh; p++)
+            {
+                if (ServerAnswers(p, 150))
+                {
+                    found.Url = "http://localhost:" + p + "/";
+                    return found;
+                }
+            }
+
+            if (port > 0)
+            {
+                found.Reason = "The interface server is not answering.";
+                found.Detail = "It took port " + port + " but did not answer there within " + (PortFileWaitMs / 1000) + " seconds.";
+            }
+            else
+            {
+                found.Reason = "The interface server did not say where it is.";
+                found.Detail = "No port was reported within " + (PortFileWaitMs / 1000) + " seconds, and nothing answered on ports " + ServerPortLow + " to " + ServerPortHigh + ".";
+            }
+            return found;
+        }
+
+        private static int ReadPortFile(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return 0;
+                int port;
+                if (int.TryParse(File.ReadAllText(path).Trim(), out port) && port > 0 && port < 65536) return port;
+            }
+            catch { }
+            return 0;
+        }
+
+        private static bool ServerAnswers(int port, int timeoutMs)
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://localhost:" + port + "/");
+                req.Timeout = timeoutMs;
+                // Never through a proxy. A hotspot or a corporate network can
+                // hand the machine one, and a request for this computer's own
+                // address must not leave it.
+                req.Proxy = null;
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                {
+                    return resp.StatusCode == HttpStatusCode.OK;
                 }
             }
             catch
             {
-                _webView.Source = new Uri("http://localhost:58100/");
+                return false;
             }
+        }
+
+        private void ShowSplash()
+        {
+            _failureShown = false;
+            if (_failureGrid != null) _failureGrid.Visibility = Visibility.Collapsed;
+            if (_webView != null) _webView.Visibility = Visibility.Hidden;
+            if (_splashGrid != null)
+            {
+                _splashGrid.BeginAnimation(UIElement.OpacityProperty, null);
+                _splashGrid.Opacity = 1.0;
+                _splashGrid.Visibility = Visibility.Visible;
+            }
+        }
+
+        // Shown instead of the interface when the interface cannot be shown.
+        // The window draws no frame; the page draws the title bar, and with no
+        // page there was no way to close the window from inside it. This says
+        // what went wrong, offers to try again, and can be closed. It is drawn
+        // by the window itself, so it needs nothing from the server or the
+        // browser to appear, and it draws no frame either.
+        private void ShowFailure(string reason, string detail)
+        {
+            try
+            {
+                Dispatcher.Invoke(new Action(delegate
+                {
+                    _failureShown = true;
+                    _awaitingInterface = false;
+                    LogHost("The interface could not be shown: " + reason + " " + (detail ?? ""));
+                    if (_failureReason != null) _failureReason.Text = reason ?? "";
+                    if (_failureDetail != null) _failureDetail.Text = detail ?? "";
+                    if (_webView != null) _webView.Visibility = Visibility.Hidden;
+                    if (_splashGrid != null)
+                    {
+                        _splashGrid.BeginAnimation(UIElement.OpacityProperty, null);
+                        _splashGrid.Visibility = Visibility.Collapsed;
+                    }
+                    if (_failureGrid != null) _failureGrid.Visibility = Visibility.Visible;
+                }));
+            }
+            catch { }
+        }
+
+        private static SolidColorBrush MakeBrush(string hex)
+        {
+            return (SolidColorBrush)new BrushConverter().ConvertFromString(hex);
+        }
+
+        private Grid CreateFailureView()
+        {
+            Grid view = new Grid();
+            view.Background = MakeBrush("#141622");
+            view.Visibility = Visibility.Collapsed;
+
+            StackPanel panel = new StackPanel();
+            panel.HorizontalAlignment = HorizontalAlignment.Center;
+            panel.VerticalAlignment = VerticalAlignment.Center;
+            panel.MaxWidth = 560;
+            panel.Margin = new Thickness(24);
+
+            TextBlock title = new TextBlock();
+            title.Text = "FedUpDate could not open its interface";
+            title.FontSize = 22;
+            title.FontWeight = FontWeights.Bold;
+            title.Foreground = MakeBrush("#F1F5F9");
+            title.TextWrapping = TextWrapping.Wrap;
+            title.TextAlignment = TextAlignment.Center;
+            title.Margin = new Thickness(0, 0, 0, 14);
+            panel.Children.Add(title);
+
+            _failureReason = new TextBlock();
+            _failureReason.FontSize = 15;
+            _failureReason.Foreground = MakeBrush("#F1F5F9");
+            _failureReason.TextWrapping = TextWrapping.Wrap;
+            _failureReason.TextAlignment = TextAlignment.Center;
+            _failureReason.Margin = new Thickness(0, 0, 0, 8);
+            panel.Children.Add(_failureReason);
+
+            _failureDetail = new TextBlock();
+            _failureDetail.FontSize = 13;
+            _failureDetail.Foreground = MakeBrush("#94A3B8");
+            _failureDetail.TextWrapping = TextWrapping.Wrap;
+            _failureDetail.TextAlignment = TextAlignment.Center;
+            _failureDetail.Margin = new Thickness(0, 0, 0, 26);
+            panel.Children.Add(_failureDetail);
+
+            StackPanel buttons = new StackPanel();
+            buttons.Orientation = Orientation.Horizontal;
+            buttons.HorizontalAlignment = HorizontalAlignment.Center;
+
+            Button refresh = MakeFailureButton("Refresh", "#D97706", "#141622");
+            refresh.Click += (s, e) => BeginConnect();
+            buttons.Children.Add(refresh);
+
+            Button exit = MakeFailureButton("Exit", "#1E293B", "#F1F5F9");
+            exit.Click += (s, e) => Close();
+            buttons.Children.Add(exit);
+
+            panel.Children.Add(buttons);
+            view.Children.Add(panel);
+            return view;
+        }
+
+        private static Button MakeFailureButton(string label, string background, string foreground)
+        {
+            Button button = new Button();
+            button.Content = label;
+            button.MinWidth = 120;
+            button.Padding = new Thickness(18, 8, 18, 8);
+            button.Margin = new Thickness(8, 0, 8, 0);
+            button.FontSize = 14;
+            button.BorderThickness = new Thickness(0);
+            button.Background = MakeBrush(background);
+            button.Foreground = MakeBrush(foreground);
+            button.Cursor = Cursors.Hand;
+            return button;
         }
 
         // The host writes into the same rolling log as the engine, so the order
@@ -511,6 +790,7 @@ namespace FedUpDate.UI
 
         private void DismissNativeSplash()
         {
+            if (_failureShown) return;
             if (_splashGrid != null && _splashGrid.Visibility == Visibility.Visible)
             {
                 LogHost(_appReported
@@ -614,6 +894,7 @@ namespace FedUpDate.UI
                 }
             }
             catch { }
+            try { File.Delete(ServerPortFilePath()); } catch { }
         }
 
         [STAThread]

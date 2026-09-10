@@ -346,9 +346,17 @@ function Invoke-FedSelfUpdate {
         leaves the data directory untouched, so configuration, logs, the state
         ledger and rollback snapshots survive. Reusing it keeps one upgrade path
         rather than a second one that could drift.
+
+        The installer runs in a process of its own. Run inside this one, it
+        re-imports the engine it is running inside of, which tears down the
+        scope its own functions live in, and the next call to one of them
+        failed. A separate process also survives the window being closed to
+        rebuild it, which this process does not when it is that window's
+        server. Detached, the update is started and reported as started;
+        otherwise it is waited on and its exit code decides the outcome.
     #>
     [CmdletBinding()]
-    param([switch]$Force, [switch]$WhatIf)
+    param([switch]$Force, [switch]$WhatIf, [switch]$Detach)
 
     $status = Get-FedVersionStatus
 
@@ -360,17 +368,17 @@ function Invoke-FedSelfUpdate {
 
     if (-not $status.RemoteReachable) {
         Write-FedLog "Update check failed; not attempting a self-update." -Level "ERROR" -Component "Version"
-        return $false
+        return [PSCustomObject]@{ Success = $false; Started = $false; Completed = $false }
     }
 
     if (-not $status.UpdateAvailable -and -not $Force) {
         Write-FedLog "Already on the latest version ($($status.Current)) on the $($status.Channel) channel." -Level "SUCCESS" -Component "Version"
-        return $true
+        return [PSCustomObject]@{ Success = $true; Started = $false; Completed = $false }
     }
 
     if ($WhatIf) {
         Write-FedLog "[WHATIF] Would update from $($status.Current) to $($status.Latest) via $installerUrl" -Level "WHATIF" -Component "Version"
-        return $true
+        return [PSCustomObject]@{ Success = $true; Started = $false; Completed = $false }
     }
 
     Write-FedLog "Updating from $($status.Current) to $($status.Latest) from the $branch branch..." -Level "INFO" -Component "Version"
@@ -378,12 +386,40 @@ function Invoke-FedSelfUpdate {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $installer = Invoke-RestMethod -Uri $installerUrl -UseBasicParsing
-        & ([scriptblock]::Create($installer)) -Branch $branch
-        Write-FedLog "Self-update completed. Restart FedUpDate to run the new version." -Level "SUCCESS" -Component "Version"
-        return $true
+
+        # Written to a file and run from there, in a process of its own.
+        $scriptDir = Join-Path ([IO.Path]::GetTempPath()) "FedUpDate"
+        if (-not (Test-Path $scriptDir)) { New-Item -ItemType Directory -Path $scriptDir -Force | Out-Null }
+        Get-ChildItem -Path $scriptDir -Filter "self-update-*.ps1" -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+        $script = Join-Path $scriptDir ("self-update-" + [guid]::NewGuid().ToString("N") + ".ps1")
+        Set-Content -Path $script -Value $installer -Encoding UTF8
+
+        if ($Detach) {
+            # The window is closed part way through to be rebuilt, and the
+            # server that started this stops with it. What the installer prints
+            # is kept in the log directory, where it can be read afterwards.
+            $transcript = Join-Path (Get-FedLogDirectory) "self-update.log"
+            $wrapped = "& { Start-Transcript -Path '$transcript' -Force | Out-Null; & '$script' -Branch '$branch'; exit `$LASTEXITCODE }"
+            $arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$wrapped`""
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden -PassThru -ErrorAction Stop
+            Write-FedLog "Self-update started in its own process (PID $($p.Id)). The window closes while the new version is built and opens again by itself. The installer's output is kept in $transcript." -Level "INFO" -Component "Version"
+            return [PSCustomObject]@{ Success = $true; Started = $true; Completed = $false; ProcessId = $p.Id }
+        }
+
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -Branch `"$branch`""
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -NoNewWindow -Wait -PassThru -ErrorAction Stop
+        Remove-Item -Path $script -Force -ErrorAction SilentlyContinue
+        if ($p.ExitCode -eq 0) {
+            Write-FedLog "Self-update completed." -Level "SUCCESS" -Component "Version"
+            return [PSCustomObject]@{ Success = $true; Started = $true; Completed = $true; ExitCode = 0 }
+        }
+        Write-FedLog "Self-update failed: the installer exited with code $($p.ExitCode)." -Level "ERROR" -Component "Version"
+        return [PSCustomObject]@{ Success = $false; Started = $true; Completed = $true; ExitCode = $p.ExitCode }
     } catch {
         Write-FedLog "Self-update failed: $_" -Level "ERROR" -Component "Version"
-        return $false
+        return [PSCustomObject]@{ Success = $false; Started = $false; Completed = $false }
     }
 }
 

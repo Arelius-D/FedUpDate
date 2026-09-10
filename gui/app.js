@@ -799,9 +799,13 @@ function updateNotificationsUI() {
       type: 'urgent',
       icon: '⚠️',
       title: 'System Reboot Required',
+      // A Start menu shutdown is a hybrid one while Fast Startup is on, and a
+      // hybrid shutdown does not finish an installed update. Said here,
+      // because that is the choice people make from the Start menu.
       desc: ((RebootReasons && RebootReasons.length > 0)
         ? RebootReasons.join(' ')
-        : 'A restart is needed to finish installing updates.') + staleNote,
+        : 'A restart is needed to finish installing updates.') + staleNote
+        + ' Use Restart, or the buttons here. A Shut down from the Start menu does not finish this while Fast Startup is on.',
       actions: [
         { text: 'Restart Now', handler: 'forceRestart()', class: 'btn-primary' },
         { text: 'Shut Down', handler: 'forceShutdown()', class: 'btn-secondary' }
@@ -1799,14 +1803,18 @@ async function runSelfUpdate() {
   if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
   setDockProgress("Updating FedUpDate", "Downloading and building the new version. This window closes and reopens by itself.", 30, true);
 
+  let underWay = false;
   try {
     const res = await fetch(`${API_BASE}/api/self-update`, { method: 'POST' });
     const result = await res.json();
-    if (result.success) {
-      // Reached only when this window survived, which means it was already on
-      // the newest version and nothing needed rebuilding. A real update closes
-      // this window long before the answer arrives, so the old wording asked
-      // for a restart that could not be read and was no longer needed anyway.
+    if (result.success && result.started) {
+      // The installer is running in a process of its own. It closes this
+      // window to rebuild it and opens it again; nothing more can be reported
+      // from here. Answered at once, which is why this is not read as being
+      // already current.
+      underWay = true;
+      setDockProgress("Updating FedUpDate", "The new version is being built. This window closes and opens again by itself.", 60, true);
+    } else if (result.success) {
       setDockProgress("Already up to date", "No new version to install.", 100, false);
     } else {
       setDockProgress("Update failed", "See the logs for details.", 100, false);
@@ -1814,9 +1822,11 @@ async function runSelfUpdate() {
   } catch (err) {
     setDockProgress("Update failed", String(err), 100, false);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Update now'; }
-    versionState.releases = null;
-    await loadVersionInfo();
+    if (!underWay) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Update now'; }
+      versionState.releases = null;
+      await loadVersionInfo();
+    }
   }
 }
 

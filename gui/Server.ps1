@@ -41,6 +41,22 @@ if ($null -eq $listener) {
     exit 1
 }
 
+# The window that started this server reads the port from here rather than
+# guessing it. The file is named after that window's process, so two windows
+# never read each other's, and it is removed when the server stops. A server
+# started without a window writes nothing.
+$portFile = $null
+if ($ParentPid -gt 0) {
+    try {
+        $portDir = Join-Path $env:LOCALAPPDATA "FedUpDate"
+        if (-not (Test-Path $portDir)) { New-Item -ItemType Directory -Path $portDir -Force | Out-Null }
+        $portFile = Join-Path $portDir "gui-port-$ParentPid.txt"
+        Set-Content -Path $portFile -Value "$port" -Encoding ASCII -Force
+    } catch {
+        $portFile = $null
+    }
+}
+
 $scriptRoot = Split-Path -Parent $PSScriptRoot
 $enginePath = Join-Path $scriptRoot "core\Engine.psm1"
 Import-Module $enginePath -Force -DisableNameChecking
@@ -626,10 +642,16 @@ try {
                     Send-FedResponse -Context $context -Content @{ releases = $global:FedReleaseNotes } -ContentType "application/json"
                 }
                 "/api/self-update" {
-                    $res = Invoke-FedSelfUpdate
+                    # Started in its own process and not waited on. The
+                    # installer closes the window to rebuild it, and this
+                    # server stops with the window, so waiting here would be
+                    # waiting on a process that outlives us. The page is told
+                    # whether an update is under way, which is not the same
+                    # answer as already being current.
+                    $res = Invoke-FedSelfUpdate -Detach
                     $global:FedVersionStatus = $null
                     $global:FedReleaseNotes = $null
-                    Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
+                    Send-FedResponse -Context $context -Content @{ success = [bool]$res.Success; started = [bool]$res.Started } -ContentType "application/json"
                 }
                 "/api/config" {
                     if ($method -eq "POST") {
@@ -752,5 +774,6 @@ try {
         $listener.Stop()
         $listener.Close()
     }
+    if ($portFile -and (Test-Path $portFile)) { Remove-Item -Path $portFile -Force -ErrorAction SilentlyContinue }
     Write-FedLog "GUI Server stopped." -Level "INFO" -Component "GUI"
 }

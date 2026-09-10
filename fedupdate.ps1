@@ -214,7 +214,7 @@ switch ($Command.ToLower()) {
                     Write-Host "[OK] Restart postponed." -ForegroundColor Green
                 }
             } else {
-                Write-Host "[!] A restart is pending. Restart when convenient to finish it." -ForegroundColor Yellow
+                Write-Host "[!] A restart is pending. Restart when convenient to finish it. A Shut down from the Start menu does not finish it while Fast Startup is on; a restart does." -ForegroundColor Yellow
             }
         }
     }

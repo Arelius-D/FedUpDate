@@ -5,6 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.46] - 2026-09-10
+
+### Fixed
+
+- **A Window That Could Not Reach Its Server Sat There With No Way Out (`gui/src/Program.cs`, `gui/Server.ps1`)**:
+  - The server takes the first free port in a range of fifty one. The window probed six of them, gave up after ninety seconds, and loaded the first one regardless. When the first was busy, which a burst of downloads just before launch is enough to cause, the window came up borderless around the browser's own error page, with no title bar to close it by, because the title bar is drawn by the page that never arrived.
+  - The server now writes the port it took to a file named after the window that started it, and the window reads that rather than guessing. If the file does not appear, every port the server could have taken is tried before anything is given up on. The request to this computer's own address never goes through a proxy, which a hotspot can hand the machine.
+  - When the interface cannot be shown, the window says why, in its own words, drawn by the window itself: the server did not start, the server stopped and with what code, the server did not answer, the page could not be loaded, or the browser runtime is missing. Refresh tries again, starting a server that has gone, and Exit closes the window. The frame is untouched; the window draws no title bar in this state either.
+
+- **Updating From Inside The Window Failed Every Time (`core/Version.ps1`, `gui/Server.ps1`, `gui/app.js`)**:
+  - The installer was run inside the process that asked for it. Part way through, the installer re-imports the engine it was running inside of, which tears down the scope holding the installer's own functions, and the next call to one of them failed. The installer now runs in a process of its own, from a file, with everything it prints kept in the log directory.
+  - Started from the window, the update is not waited on, since the window is closed to be rebuilt and the server stops with it. The window reports that the update is under way rather than mistaking a quick answer for already being current. From the command line and the text interface the update is waited on, and an installer that fails is reported as failed, with its exit code.
+
+- **The Restart Notice Did Not Say Which Kind Of Restart (`gui/app.js`, `fedupdate.ps1`)**:
+  - A Shut down from the Start menu is a hybrid shutdown while Fast Startup is on, and a hybrid shutdown does not finish an installed update; Windows goes on offering the update and every scan goes on counting it. The notice and the text interface now say so. The Restart and Shut Down buttons already perform the full kind.
+
+---
+
 ## [1.0.45] - 2026-09-10
 
 ### Fixed
