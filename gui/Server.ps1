@@ -257,6 +257,15 @@ try {
         $rawCache = Get-Content -Path $cacheFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
         if ($rawCache) {
             $global:LastScanData = ($rawCache | ConvertFrom-Json)
+            # A record from before the last restart describes a machine that
+            # no longer exists: the restart finished what was held. It is
+            # handed over marked, so the interface says it predates the
+            # restart rather than presenting it as the state now.
+            try {
+                $booted = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
+                $taken = (Get-Item $cacheFile).LastWriteTime
+                $global:LastScanData | Add-Member -NotePropertyName ScanPredatesBoot -NotePropertyValue ($taken -lt $booted) -Force
+            } catch { }
         }
     }
 } catch { }
@@ -574,7 +583,8 @@ try {
                     } else {
                         $res = Remove-FedScheduleTask
                     }
-                    Send-FedResponse -Context $context -Content @{ success = $res } -ContentType "application/json"
+                    # What is there afterwards, not what was asked for.
+                    Send-FedResponse -Context $context -Content @{ success = [bool]$res; schedule = (Get-FedScheduleTask) } -ContentType "application/json"
                 }
                 "/api/scan/elevated" {
                     # Asked for explicitly from the interface. The borrow inside

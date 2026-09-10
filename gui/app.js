@@ -596,6 +596,7 @@ async function loadInitialData() {
   } catch (err) {
     console.warn("Config fetch error:", err);
   }
+  await loadScheduleStatus();
 
   // Fetch immediate cached scan data for 0ms startup hydration
   try {
@@ -701,7 +702,7 @@ function updateDashboardUI() {
   if (!state.scanData) return;
 
   const { OSUpdateCount, OSAwaitingRestartCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted,
-          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
+          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt, ScanPredatesBoot } = state.scanData;
 
   // The badges carry state, not identity: green when there is nothing to do,
   // and one shared colour when there is. Three different colours were used to
@@ -720,7 +721,14 @@ function updateDashboardUI() {
   if (osEl) {
     // A refused scan has no count. Showing 0 would state a measurement that was
     // never taken, so it says what happened and offers the way to get one.
-    if (OSScanBlocked && OSScanCached) {
+    if (ScanPredatesBoot) {
+      // A restart finishes what was installed and held. A record from before
+      // it lists as pending what the restart has just finished, and that is
+      // what this badge showed after a restart until somebody scanned again.
+      osEl.textContent = 'Not checked since restart';
+      osEl.className = 'badge-pill badge-recommended';
+      osEl.title = 'The last check was taken before the last restart. Scan to see what is pending now.';
+    } else if (OSScanBlocked && OSScanCached) {
       // This session could not check, but an elevated one already did, and its
       // answer outlived the process that produced it. Reporting that answer with
       // its age beats reporting nothing on a question already answered.
@@ -772,9 +780,38 @@ function updateNotificationsUI() {
 
   const items = [];
   const { OSUpdateCount, OSAwaitingRestartCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted,
-          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
+          OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt, ScanPredatesBoot, WatchdogNeverApplied } = state.scanData;
 
-  if (WatchdogDrifted) {
+  // A record from before the last restart says nothing true about what is
+  // pending, what restart is owed, or what has drifted. One line asks for the
+  // scan; the stale answers are not repeated under it.
+  const stale = !!ScanPredatesBoot;
+  if (stale) {
+    items.push({
+      id: 'scan-needed',
+      type: 'warn',
+      icon: '\u{1F50D}',
+      title: 'Scan Needed',
+      desc: 'The last check was taken before the last restart, which finishes what was installed and held. Scan to see what is pending now.',
+      actionText: 'Scan now',
+      actionHandler: 'triggerScan()'
+    });
+  }
+
+  if (WatchdogDrifted && !stale && WatchdogNeverApplied) {
+    // Every managed setting at the Windows default because the shield has
+    // not been applied on this installation yet. Not drift, and not Windows
+    // doing anything, so it is not called either.
+    items.push({
+      id: 'watchdog-unapplied',
+      type: 'warn',
+      icon: '\u{1F6E1}\uFE0F',
+      title: 'Shield Not Applied Yet',
+      desc: 'The shield is enabled in Settings but has not been applied on this installation. Enforce Guard applies it and installs the on-boot guard.',
+      actionText: 'Enforce Guard',
+      actionHandler: 'enforceWatchdog(false)'
+    });
+  } else if (WatchdogDrifted && !stale) {
     items.push({
       id: 'watchdog-drift',
       type: 'urgent',
@@ -790,7 +827,7 @@ function updateNotificationsUI() {
   // queued for the next restart, are different things and are shown differently.
   // Presenting cleanup as an urgent alert is what trained people to ignore this
   // list, because the alert never cleared.
-  if (RebootSeverity === 'Required') {
+  if (!stale && RebootSeverity === 'Required') {
     const staleNote = RebootSurvivedBoot
       ? ' Some of this predates your last restart, so restarting again will not clear it.'
       : '';
@@ -811,7 +848,7 @@ function updateNotificationsUI() {
         { text: 'Shut Down', handler: 'forceShutdown()', class: 'btn-secondary' }
       ]
     });
-  } else if (RebootSeverity === 'Advisory') {
+  } else if (!stale && RebootSeverity === 'Advisory') {
     const files = (RebootPendingFiles || []).slice(0, 3);
     const extra = (RebootPendingFiles || []).length - files.length;
     const detail = files.length
@@ -832,7 +869,7 @@ function updateNotificationsUI() {
     });
   }
 
-  if (OSScanBlocked && !OSScanCached) {
+  if (!stale && OSScanBlocked && !OSScanCached) {
     items.push({
       id: 'os-scan-blocked',
       type: 'warn',
@@ -850,7 +887,7 @@ function updateNotificationsUI() {
   // they are waiting for rather than asking for them to be installed.
   const osHeld = Math.min(OSAwaitingRestartCount || 0, OSUpdateCount || 0);
   const osOpen = (OSUpdateCount || 0) - osHeld;
-  if ((!OSScanBlocked || OSScanCached) && osHeld > 0 && osOpen === 0) {
+  if (!stale && (!OSScanBlocked || OSScanCached) && osHeld > 0 && osOpen === 0) {
     items.push({
       id: 'os-updates-held',
       type: 'info',
@@ -862,7 +899,7 @@ function updateNotificationsUI() {
     });
   }
 
-  if ((!OSScanBlocked || OSScanCached) && osOpen > 0) {
+  if (!stale && (!OSScanBlocked || OSScanCached) && osOpen > 0) {
     items.push({
       id: 'os-updates',
       type: 'warn',
@@ -995,6 +1032,18 @@ function renderOSUpdatesTable() {
   // found nothing. Declaring the system up to date on the strength of a check
   // that never happened is the one thing this table must never do, so the
   // refusal is reported as itself, with the way to resolve it.
+  if (state.scanData && state.scanData.ScanPredatesBoot) {
+    tbody.innerHTML = `
+      <tr class="placeholder-row">
+        <td colspan="6">
+          This list was taken before the last restart, which finishes what was installed and held.
+          <button class="btn btn-secondary btn-sm" onclick="triggerScan()">Scan now</button>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
   if (state.scanData && state.scanData.OSScanBlocked && !state.scanData.OSScanCached) {
     const reason = state.scanData.OSScanReason
       || 'The Windows Update service is disabled by the anti-tamper shield.';
@@ -1416,21 +1465,50 @@ async function rollbackState(txId, isWhatIf = false) {
 }
 
 // Scheduler Settings
+//
+// The panel shows the task as Windows has it, not the setting that was
+// written. The toggle used to read the configuration back, which the save
+// had written as enabled whether or not a task was registered, so the panel
+// showed the schedule as on while nothing was scheduled.
+function renderScheduleStatus(sched) {
+  const toggle = document.getElementById('schedulerEnabledToggle');
+  const text = document.getElementById('schedulerStatusText');
+  const configured = !!(sched && sched.IsConfigured);
+  if (toggle) toggle.checked = configured;
+  if (text) text.textContent = (sched && sched.Detail) ? sched.Detail : (configured ? 'Registered.' : 'No automated run is scheduled.');
+}
+
+async function loadScheduleStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/schedule`);
+    renderScheduleStatus(await res.json());
+  } catch (err) {
+    console.warn("Schedule status fetch error:", err);
+  }
+}
+
 async function saveSchedulerSettings() {
   const enabled = document.getElementById('schedulerEnabledToggle').checked;
   const frequency = document.getElementById('schedFrequencySelect').value;
   const time = document.getElementById('schedTimeInput').value;
 
-  setDockProgress("Saving", "Configuring Windows Task Scheduler...", 50, true);
+  setDockProgress("Saving", enabled ? "Scheduling the automated run. This asks for elevation once." : "Removing the automated run...", 50, true);
   try {
-    await fetch(`${API_BASE}/api/schedule/set`, {
+    const res = await fetch(`${API_BASE}/api/schedule/set`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled, frequency, time })
     });
-    setDockProgress("Saved", "Schedule updated.", 100, false);
+    const result = await res.json();
+    if (result.schedule) renderScheduleStatus(result.schedule); else await loadScheduleStatus();
+    if (result.success) {
+      setDockProgress("Saved", enabled ? "The automated run is scheduled." : "The automated run is removed.", 100, false);
+    } else {
+      setDockProgress("Not saved", "The schedule was not changed. Elevation was declined or the task could not be registered. See the logs.", 100, false);
+    }
   } catch (err) {
     setDockProgress("Error", `Failed to save schedule: ${err.message}`, 0, false);
+    await loadScheduleStatus();
   }
 }
 

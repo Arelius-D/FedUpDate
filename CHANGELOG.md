@@ -5,6 +5,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.48] - 2026-09-10
+
+### Fixed
+
+- **The Schedule Reported Configured While Nothing Was Scheduled (`core/Scheduler.ps1`, `fedupdate.ps1`, `gui/Server.ps1`, `gui/app.js`, `gui/index.html`)**:
+  - Registering a task that runs as SYSTEM needs administrator rights, and the scheduler went ahead without them. The refusal is not an error that stops anything, so the configuration was written as enabled and success was logged while no task had been registered, from the window, the command line and the text interface alike. The window then showed the setting it had written back as the state of the schedule.
+  - It now asks for the rights, the way enforcing the shield does, treats a refusal as the failure it is, and reports configured only once the task has been asked for back and is there. Removing works the same way. The task is pointed at Windows PowerShell, which the SYSTEM account can run, rather than at whichever PowerShell registered it. The window's schedule page shows the task's state, read from Windows, and says when a save did not take. The command line exits non-zero when a schedule was not set, and accepts a day of the week.
+  - The task runs as SYSTEM, which an ordinary session cannot read, so it was reported as not configured from every such session whether registered or not. Refused is not absent, and it is reported as registered when it is.
+  - Asking Windows about a task that does not exist wrote to the error stream, and under the command line and the window's server, which stop on errors, that aborted the caller instead of answering no. The question is now asked in a way that answers.
+
+- **`fedupdate check` Called An Unchecked Machine Up To Date (`fedupdate.ps1`)**:
+  - While the shield is on, an unelevated run cannot check Windows Update at all, and the command reported the system fully up to date regardless. It now says the check did not run and exits with its own code, and when it relies on an earlier elevated check it says how old that check is.
+
+- **A Scan Record From Before The Last Restart Was Shown As The State Now (`core/OSUpdateEngine.ps1`, `gui/Server.ps1`, `gui/app.js`)**:
+  - A restart finishes what was installed and held. A record taken before it lists as pending what the restart has just finished, and the window showed exactly that after a restart, until somebody thought to scan again. A recorded check from before the last boot is no longer reported as current: the window says so and offers the scan, and an unelevated scan does not fall back to it.
+
+- **The Drift Alert Accused Windows Of Something It Had Not Done (`core/Engine.psm1`, `gui/app.js`, `fedupdate.ps1`)**:
+  - On an installation whose guard has never run, every managed setting is at the Windows default because the shield has not been applied yet, not because Windows changed anything back. That is now said as what it is, with the remedy, and drift keeps its name for the case where the guard has run and Windows has undone its work.
+
+- **`watchdog install-task` Refused Without Asking (`core/AntiTamperWatchdog.ps1`, `fedupdate.ps1`)**:
+  - Every other operation that needs administrator rights asks for them; this one refused with a hint. It asks now, verifies the guard is present afterwards, and the command line exits non-zero when it is not. The boot guard is pointed at Windows PowerShell for the same reason as the update task.
+
+---
+
 ## [1.0.47] - 2026-09-10
 
 ### Fixed

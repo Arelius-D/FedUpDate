@@ -422,6 +422,32 @@ function Clear-FedOSScanCache {
     if (Test-Path $file) { Remove-Item -Path $file -Force -ErrorAction SilentlyContinue }
 }
 
+function Test-FedOSScanCacheCurrent {
+    <#
+    .SYNOPSIS
+        Whether a recorded scan was taken since the last boot.
+    .DESCRIPTION
+        A restart changes what is pending: it finishes what was installed and
+        held. A record from before it describes a machine that no longer
+        exists, and reporting it as the answer now showed updates as pending
+        that the restart had just finished.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        $Cache
+    )
+
+    if ($null -eq $Cache) { return $false }
+    try {
+        $checked = [datetime]::Parse([string]$Cache.CheckedAt)
+        $booted = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
+        return ($checked -gt $booted)
+    } catch {
+        return $false
+    }
+}
+
 function Get-FedOSUpdates {
     [CmdletBinding()]
     param(
@@ -609,7 +635,7 @@ function Get-FedOSUpdates {
         # earlier answer with the empty result of a search that never finished
         # would lose the only measurement there was.
         $earlier = Get-FedOSScanCache
-        if ($null -ne $earlier) {
+        if ($null -ne $earlier -and (Test-FedOSScanCacheCurrent -Cache $earlier)) {
             $results.Clear()
             foreach ($up in @($earlier.Updates)) { $results.Add($up) }
             $script:FedOSScanCached = $true
@@ -621,11 +647,16 @@ function Get-FedOSUpdates {
         # already have answered this, and that answer is better than reporting
         # nothing at all, so long as it is reported as what it is and dated.
         $cached = Get-FedOSScanCache
-        if ($null -ne $cached) {
+        if ($null -ne $cached -and (Test-FedOSScanCacheCurrent -Cache $cached)) {
             foreach ($up in @($cached.Updates)) { $results.Add($up) }
             $script:FedOSScanCached = $true
             $script:FedOSScanCheckedAt = [string]$cached.CheckedAt
             Write-FedLog "Reporting the last elevated check, taken $($cached.CheckedAt), because this session may not run one." -Level "INFO" -Component "OSUpdate"
+        } elseif ($null -ne $cached) {
+            # A restart finishes what was installed and held, so a record from
+            # before it lists as pending what the restart has just finished.
+            $script:FedOSScanReason = "$($script:FedOSScanReason) The last elevated check was taken before the last restart, so it is not reported."
+            Write-FedLog "The last elevated check, taken $($cached.CheckedAt), predates the last restart and is not reported. Check again to see what is pending now." -Level "INFO" -Component "OSUpdate"
         }
     } else {
         Save-FedOSScanCache -Updates @($results)

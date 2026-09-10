@@ -673,7 +673,9 @@ function Install-FedWatchdogTask {
     $scriptRoot = Split-Path -Parent $PSScriptRoot
     $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
     
-    $pwshPath = (Get-Process -Id $PID).Path
+    # Windows PowerShell, whichever PowerShell is registering it. A task
+    # pointed at the Store-installed pwsh cannot be run by SYSTEM.
+    $pwshPath = Get-FedWindowsPowerShellPath
     $actionArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" watchdog enforce"
 
     if ($WhatIf) {
@@ -683,7 +685,19 @@ function Install-FedWatchdogTask {
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
-        Write-FedLog "Administrator rights are required to register the boot guard under the SYSTEM account. Run 'fedupdate watchdog enforce' once from an elevated session." -Level "WARN" -Component "Watchdog"
+        # Asked for, the way enforcing asks, rather than refused with a hint.
+        try {
+            Write-FedLog "Registering the boot guard needs administrator rights. Asking for them." -Level "INFO" -Component "Watchdog"
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" watchdog install-task" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+            if ($null -ne $p -and $p.ExitCode -eq 0 -and (Test-FedWatchdogTaskExists -TaskName $taskName)) {
+                Set-FedWatchdogState -Values @{ Installed = $true; IntervalMinutes = [int]$IntervalMinutes }
+                Write-FedLog "Registered watchdog task '$taskName' through an elevated run, verified present." -Level "SUCCESS" -Component "Watchdog"
+                return $true
+            }
+            Write-FedLog "The boot guard was not registered. The elevated run did not leave a task behind." -Level "ERROR" -Component "Watchdog"
+        } catch {
+            Write-FedLog "Elevation was declined, so the boot guard is not registered." -Level "WARN" -Component "Watchdog"
+        }
         return $false
     }
 
@@ -827,7 +841,18 @@ function Test-FedWatchdogTaskExists {
 
     # schtasks distinguishes the two cases in a way the cmdlet does not: being
     # told access is denied means there is something there to be denied about.
-    $out = (& schtasks.exe /Query /TN $TaskName 2>&1 | Out-String)
+    #
+    # Asked through cmd, which merges what schtasks writes to its error stream
+    # into plain output. Redirected in PowerShell, that stream became an error
+    # record, and under a caller that stops on errors, which the command line
+    # is, asking about a task that does not exist aborted the caller instead
+    # of answering no.
+    $out = ""
+    try {
+        $out = ((& cmd.exe /d /c "schtasks.exe /Query /TN `"$TaskName`" 2>&1") | ForEach-Object { [string]$_ }) -join "`n"
+    } catch {
+        $out = [string]$_
+    }
     if ($out -match 'Access is denied') { return $true }
     return $false
 }

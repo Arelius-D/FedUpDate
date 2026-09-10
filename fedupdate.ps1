@@ -81,6 +81,9 @@ param(
     [string]$Time = "02:00",
 
     [Parameter()]
+    [string]$DayOfWeek = "Sunday",
+
+    [Parameter()]
     [int]$Count = 50
 )
 
@@ -175,15 +178,31 @@ switch ($Command.ToLower()) {
         if ($result.RebootSurvivedBoot) {
             Write-Host "  Note: some pending items predate the last restart, so restarting again will not clear them."
         }
-        Write-Host "Anti-Tamper Drift:           $($result.WatchdogDrifted)`n"
+        Write-Host "Anti-Tamper Drift:           $($result.WatchdogDrifted)"
+        if ($result.WatchdogNeverApplied) {
+            Write-Host "  The shield is enabled but has not been applied on this installation yet. Run 'fedupdate watchdog enforce' to apply it."
+        }
+        Write-Host ""
     }
     "check" {
         $result = Start-FedScan
+        # Not checked is not clean. This used to report the system up to date
+        # on the strength of a Windows Update check that never ran, which is
+        # every unelevated run while the shield is on.
+        if ($result.OSScanBlocked -and -not $result.OSScanCached) {
+            Write-Host "[?] Windows updates were not checked. $($result.OSScanReason)" -ForegroundColor Yellow
+            Write-Host "    Run 'fedupdate check' from an elevated session to check them. The shield is restored afterwards."
+            exit 2
+        }
         if ($result.OSUpdateCount -gt 0 -or $result.WingetUpdateCount -gt 0 -or $result.StoreUpdateCount -gt 0) {
             Write-Host "[!] Updates are pending across system engines." -ForegroundColor Yellow
             exit 1
         } else {
-            Write-Host "[OK] System is fully up to date." -ForegroundColor Green
+            if ($result.OSScanCached) {
+                Write-Host "[OK] System is fully up to date, as of the elevated Windows Update check $(Get-FedFriendlyAge -Iso $result.OSScanCheckedAt)." -ForegroundColor Green
+            } else {
+                Write-Host "[OK] System is fully up to date." -ForegroundColor Green
+            }
             exit 0
         }
     }
@@ -230,7 +249,7 @@ switch ($Command.ToLower()) {
                 Write-Host ""
             }
             "install-task" {
-                Install-FedWatchdogTask -WhatIf:$isWhatIf
+                if (-not (Install-FedWatchdogTask -WhatIf:$isWhatIf)) { exit 1 }
             }
             "remove-task" {
                 Uninstall-FedWatchdogTask -WhatIf:$isWhatIf
@@ -288,10 +307,10 @@ switch ($Command.ToLower()) {
     "schedule" {
         switch ($Action.ToLower()) {
             "set" {
-                Set-FedScheduleTask -Frequency $Frequency -Time $Time -WhatIf:$isWhatIf
+                if (-not (Set-FedScheduleTask -Frequency $Frequency -Time $Time -DayOfWeek $DayOfWeek -WhatIf:$isWhatIf)) { exit 1 }
             }
             "remove" {
-                Remove-FedScheduleTask -WhatIf:$isWhatIf
+                if (-not (Remove-FedScheduleTask -WhatIf:$isWhatIf)) { exit 1 }
             }
             Default {
                 $task = Get-FedScheduleTask
