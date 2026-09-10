@@ -150,6 +150,9 @@ switch ($Command.ToLower()) {
         } else {
             Write-Host "OS Updates Pending:          $($result.OSUpdateCount)"
         }
+        if ($result.OSAwaitingRestartCount -gt 0) {
+            Write-Host "  $($result.OSAwaitingRestartCount) of these are installed already and waiting for a restart to finish."
+        }
         Write-Host "WinGet Updates Pending:      $($result.WingetUpdateCount)"
         Write-Host "Microsoft Store Updates:     $($result.StoreUpdateCount)"
         Write-Host "Microsoft Store App:         $(if ($result.StoreInstalled) { "Installed (v$($result.StoreVersion))" } else { "Not Available" })"

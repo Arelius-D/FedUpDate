@@ -7,6 +7,13 @@
 . "$PSScriptRoot\Logger.ps1"
 . "$PSScriptRoot\Config.ps1"
 
+# How long an installation is given before the run stops waiting for it. A
+# cumulative update on a fast connection finished eleven minutes short of the
+# thirty minutes this used to be; on a slow connection, or for a feature
+# update, thirty minutes is not a ceiling but a guarantee of being cut off.
+# The window that waits on a run carries the same figure, in milliseconds.
+$script:FedOSInstallCeilingMinutes = 240
+
 function Get-FedDefenderStatus {
     [CmdletBinding()]
     param()
@@ -324,6 +331,21 @@ function Get-FedUpdateResultText {
     }
 }
 
+function Test-FedRestartOwedToWindowsUpdate {
+    <#
+    .SYNOPSIS
+        Whether Windows itself says an installed update is waiting for a restart.
+    .DESCRIPTION
+        The Update Agent sets this when an installation ends needing one, and
+        the restart clears it. It is Windows' own answer, so a list that says
+        an update is held for a restart can be checked against it.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return [bool](Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired")
+}
+
 function Get-FedOSInstallResultFile {
     return Join-Path (Get-FedDataDirectory) "os_install_result.json"
 }
@@ -346,12 +368,11 @@ function Save-FedOSInstallResult {
     )
 
     try {
-        # Written from inside the lift, whose finally block restores the shield
-        # before this process exits. The parent reads this and skips its own
-        # enforcement rather than prompting again for something already done.
-        if ($null -ne $Result) {
-            Add-Member -InputObject $Result -MemberType NoteProperty -Name ShieldRestored -Value ($script:FedShieldLiftDepth -gt 0) -Force
-        }
+        # Whether the shield went back up is not decided here. The core writes
+        # this record from inside the lift, before the restoration has been
+        # attempted, and a record made then said the shield was restored
+        # whatever happened next. The process that lifted the shield rewrites
+        # the record after restoring it, and that is the copy the parent reads.
         $Result | ConvertTo-Json -Depth 6 | Set-Content -Path (Get-FedOSInstallResultFile) -Encoding UTF8 -ErrorAction Stop
     } catch {
         Write-FedLog "Could not record the installation result: $_" -Level "WARN" -Component "OSUpdate"
@@ -432,6 +453,31 @@ function Get-FedOSUpdates {
                 $srch.ServerSelection = 0
                 $srch.Online = $isOnline
                 $sr = $srch.Search("IsInstalled=0 and IsHidden=0")
+
+                # Which of the offered updates Windows has already installed
+                # and is holding for a restart. An installed update stays in
+                # the offered list until the restart that finishes it, and
+                # listing it as pending told people to install what they had
+                # just installed. Windows' own history says what it installed
+                # since the last boot, and it only counts while Windows itself
+                # says a restart is owed. History entries are kept in UTC.
+                $heldForRestart = @()
+                try {
+                    if ([bool](New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) {
+                        $bootedAt = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime.ToUniversalTime()
+                        $historyCount = [int]$srch.GetTotalHistoryCount()
+                        $window = [math]::Min($historyCount, 100)
+                        if ($window -gt 0) {
+                            foreach ($h in $srch.QueryHistory(0, $window)) {
+                                $applied = [datetime]::SpecifyKind([datetime]$h.Date, [System.DateTimeKind]::Utc)
+                                if ($h.Operation -eq 1 -and ($h.ResultCode -eq 2 -or $h.ResultCode -eq 3) -and $applied -gt $bootedAt) {
+                                    $heldForRestart += [string]$h.UpdateIdentity.UpdateID
+                                }
+                            }
+                        }
+                    }
+                } catch { }
+
                 $items = @()
                 if ($null -ne $sr -and $null -ne $sr.Updates) {
                     foreach ($u in $sr.Updates) {
@@ -476,16 +522,17 @@ function Get-FedOSUpdates {
                         } catch { }
 
                         $items += [PSCustomObject]@{
-                            Id             = $u.Identity.UpdateID
-                            Title          = $u.Title
-                            KB             = $kb
-                            SizeMB         = [math]::Round($u.MaxDownloadSize / 1MB, 2)
-                            IsSecurity     = ($cats -contains "Security Updates" -or $cats -contains "Critical Updates")
-                            IsDriver       = ($cats -contains "Drivers")
-                            IsDefender     = ($u.Title -match "Defender|Antivirus|Security Intelligence")
-                            RebootRequired = $u.RebootRequired
-                            SupportUrl     = $support
-                            BundledKBs     = $bundled
+                            Id              = $u.Identity.UpdateID
+                            Title           = $u.Title
+                            KB              = $kb
+                            SizeMB          = [math]::Round($u.MaxDownloadSize / 1MB, 2)
+                            IsSecurity      = ($cats -contains "Security Updates" -or $cats -contains "Critical Updates")
+                            IsDriver        = ($cats -contains "Drivers")
+                            IsDefender      = ($u.Title -match "Defender|Antivirus|Security Intelligence")
+                            RebootRequired  = $u.RebootRequired
+                            AwaitingRestart = ($heldForRestart -contains [string]$u.Identity.UpdateID)
+                            SupportUrl      = $support
+                            BundledKBs      = $bundled
                         }
                     }
                 }
@@ -588,6 +635,10 @@ function Install-FedOSUpdates {
         is up. Elevated, the whole operation runs inside a lift that restores
         the shield afterwards, including on failure. Unelevated, the core hands
         the work to an elevated process, which lifts for itself.
+
+        Whether the shield went back up is reported by the process that lifted
+        it, after it has done so. An unelevated run reports what its elevated
+        child recorded, and does not overwrite it.
     #>
     [CmdletBinding()]
     param(
@@ -602,14 +653,36 @@ function Install-FedOSUpdates {
     )
 
     $bound = $PSBoundParameters
-    $script:FedShieldRestored = $false
+    # Null until this process lifts the shield. The lift sets it to whether the
+    # restoration succeeded, and nothing else does. Unelevated, under WhatIf or
+    # with the shield off, nothing is lifted here, it stays null, and the answer
+    # is whatever the elevated child recorded.
+    $script:FedShieldRestored = $null
 
     $result = Invoke-FedWithShieldLifted -WhatIf:$WhatIf -Action {
         Install-FedOSUpdatesCore @bound
     }
 
-    if ($null -ne $result) {
+    # One result, never a stream. Anything the core lets slip into its output
+    # arrives here as extra elements. The flag below then lands on the array
+    # rather than on the result, is lost when the array is returned, and the
+    # caller reads whatever member enumeration finds among the elements. That
+    # is how a flag this function had set to false was read back as true.
+    $items = @($result | Where-Object { $null -ne $_ -and $_.PSObject.BaseObject -is [System.Management.Automation.PSCustomObject] })
+    if ($items.Count -ne 1) {
+        Write-FedLog "The Windows Update phase produced $($items.Count) result object(s) where one was expected." -Level "WARN" -Component "OSUpdate"
+    }
+    if ($items.Count -eq 0) { return $null }
+    $result = $items[$items.Count - 1]
+
+    if ($null -ne $script:FedShieldRestored) {
+        # This process lifted the shield, so this process says whether it went
+        # back up, and rewrites the record the core left from inside the lift,
+        # which could not have known.
         Add-Member -InputObject $result -MemberType NoteProperty -Name ShieldRestored -Value ([bool]$script:FedShieldRestored) -Force
+        Save-FedOSInstallResult -Result $result
+    } elseif (-not ($result.PSObject.Properties.Name -contains 'ShieldRestored')) {
+        Add-Member -InputObject $result -MemberType NoteProperty -Name ShieldRestored -Value $false
     }
     return $result
 }
@@ -628,7 +701,10 @@ function Install-FedOSUpdatesCore {
     )
 
     if ($UpdateDefender) {
-        Update-FedDefenderDefinitions -WhatIf:$WhatIf
+        # Discarded on purpose. This function's output is its result, and the
+        # signature step's own true or false, left on the pipeline, was
+        # arriving ahead of it as a second result.
+        [void](Update-FedDefenderDefinitions -WhatIf:$WhatIf)
     }
 
     if ($null -eq $UpdatesToInstall -or $UpdatesToInstall.Count -eq 0) {
@@ -637,6 +713,32 @@ function Install-FedOSUpdatesCore {
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $scanState = Get-FedOSScanState
+
+    # An update Windows has already installed and is holding for a restart is
+    # still offered until that restart, and installing it again only installs
+    # it again. Those are set aside, counted as what they are, and the run
+    # goes on with the rest. Honoured only while Windows itself says a restart
+    # is owed: once it has happened, a list that still says so is stale, and
+    # the update is treated as pending until a fresh check says otherwise.
+    $heldForRestart = @()
+    if (Test-FedRestartOwedToWindowsUpdate) {
+        $heldForRestart = @($UpdatesToInstall | Where-Object { $_.AwaitingRestart })
+        if ($heldForRestart.Count -gt 0) {
+            $UpdatesToInstall = @($UpdatesToInstall | Where-Object { -not $_.AwaitingRestart })
+            foreach ($held in $heldForRestart) {
+                Write-FedLog "Already installed and waiting for a restart, so not installed again: $($held.Title)" -Level "INFO" -Component "OSUpdate"
+            }
+            if ($UpdatesToInstall.Count -eq 0) {
+                Write-FedLog "Nothing left to install. $($heldForRestart.Count) update(s) are installed and waiting for a restart to finish." -Level "SUCCESS" -Component "OSUpdate"
+                return [PSCustomObject]@{
+                    SuccessCount    = 0
+                    FailCount       = 0
+                    AwaitingRestart = $heldForRestart.Count
+                    RebootRequired  = $true
+                }
+            }
+        }
+    }
 
     if ($UpdatesToInstall.Count -eq 0) {
         # An empty list means one of two things, and they must not be confused:
@@ -710,18 +812,26 @@ function Install-FedOSUpdatesCore {
 
                 $installed = [int]$childResult.SuccessCount
                 $failed = [int]$childResult.FailCount
-                if ($failed -gt 0 -or $installed -eq 0) {
+                $waiting = [int]$childResult.AwaitingRestart
+                if ($failed -gt 0) {
                     Write-FedLog "The elevated run installed $installed update(s) and did not install $failed. $($childResult.Error)" -Level "WARN" -Component "OSUpdate"
+                } elseif ($installed -eq 0 -and $waiting -gt 0) {
+                    Write-FedLog "Nothing left to install. $waiting update(s) are installed and waiting for a restart to finish." -Level "SUCCESS" -Component "OSUpdate"
+                } elseif ($installed -eq 0) {
+                    Write-FedLog "The elevated run found nothing left to install. $($childResult.Error)" -Level "INFO" -Component "OSUpdate"
+                } elseif ($waiting -gt 0) {
+                    Write-FedLog "Elevated Windows Update installation completed. Installed $installed update(s), $waiting of them waiting for a restart to finish." -Level "SUCCESS" -Component "OSUpdate"
                 } else {
                     Write-FedLog "Elevated Windows Update installation completed. Installed $installed update(s)." -Level "SUCCESS" -Component "OSUpdate"
                 }
 
                 return [PSCustomObject]@{
-                    SuccessCount   = $installed
-                    FailCount      = $failed
-                    RebootRequired = [bool]$rebootState.IsRebootRequired
-                    Error          = $childResult.Error
-                    ShieldRestored = [bool]$childResult.ShieldRestored
+                    SuccessCount    = $installed
+                    FailCount       = $failed
+                    AwaitingRestart = $waiting
+                    RebootRequired  = [bool]$rebootState.IsRebootRequired
+                    Error           = $childResult.Error
+                    ShieldRestored  = [bool]$childResult.ShieldRestored
                 }
             }
             Write-FedLog "Elevated Windows Update installation did not complete (exit code $($p.ExitCode))." -Level "WARN" -Component "OSUpdate"
@@ -810,15 +920,22 @@ function Install-FedOSUpdatesCore {
                 $detail = @()
                 for ($i = 0; $i -lt $collection.Count; $i++) {
                     $code = 4
+                    $needsRestart = $false
                     try { $code = $installResult.GetUpdateResult($i).ResultCode } catch { $code = 4 }
+                    # Whether this update, not the run as a whole, is holding
+                    # for a restart. One that is stays in Windows' offered list
+                    # until the restart, and the check afterwards has to know
+                    # that this is why.
+                    try { $needsRestart = [bool]$installResult.GetUpdateResult($i).RebootRequired } catch { $needsRestart = $false }
                     if ($code -eq 2 -or $code -eq 3) { $succeeded++ } else { $failed++ }
                     $item = $collection.Item($i)
                     $cats = @($item.Categories | ForEach-Object { $_.Name })
                     $detail += [PSCustomObject]@{
-                        Id         = $item.Identity.UpdateID
-                        Title      = $item.Title
-                        IsDriver   = ($cats -contains "Drivers")
-                        ResultCode = $code
+                        Id             = $item.Identity.UpdateID
+                        Title          = $item.Title
+                        IsDriver       = ($cats -contains "Drivers")
+                        ResultCode     = $code
+                        RebootRequired = $needsRestart
                     }
                 }
 
@@ -840,11 +957,35 @@ function Install-FedOSUpdatesCore {
 
         Write-FedLog "Downloading and installing Windows update packages..." -Level "INFO" -Component "OSUpdate"
 
-        if (-not ($installJob | Wait-Job -Timeout 1800)) {
+        # Waited for in one minute steps rather than in one long wait. Each
+        # step renews the lift record, so the periodic guard sees a run that
+        # is alive and leaves the shield down; the record only expires once
+        # this process stops renewing it. A single wait of thirty minutes was
+        # the ceiling before, and a cumulative update came within eleven
+        # minutes of it on a fast connection. On a slow one it would have been
+        # cut off, the shield restored underneath the install, and the update
+        # reported as failed while Windows was still installing it.
+        $ceiling = [timespan]::FromMinutes($script:FedOSInstallCeilingMinutes)
+        $started = Get-Date
+        $lastNote = $started
+        $finished = $false
+        while (-not $finished) {
+            $finished = [bool]($installJob | Wait-Job -Timeout 60)
+            if ($finished) { break }
+            [void](Update-FedWatchdogSuspension)
+            $elapsed = (Get-Date) - $started
+            if ($elapsed -gt $ceiling) { break }
+            if (((Get-Date) - $lastNote).TotalMinutes -ge 10) {
+                $lastNote = Get-Date
+                Write-FedLog "Windows Update is still working after $([int]$elapsed.TotalMinutes) minutes. The shield stays lifted until it finishes." -Level "INFO" -Component "OSUpdate"
+            }
+        }
+
+        if (-not $finished) {
             Stop-Job -Job $installJob -ErrorAction SilentlyContinue
             Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
-            Write-FedLog "Windows Update operation timed out after 30 minutes." -Level "ERROR" -Component "OSUpdate"
-            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = "Timed out" }
+            Write-FedLog "Windows Update has not finished after $($script:FedOSInstallCeilingMinutes) minutes, so this run stops waiting for it. Windows may still be installing on its own; check the system's update screen before running again." -Level "ERROR" -Component "OSUpdate"
+            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = "Timed out after $($script:FedOSInstallCeilingMinutes) minutes" }
         }
 
         $outcome = Receive-Job -Job $installJob
@@ -911,9 +1052,13 @@ function Install-FedOSUpdatesCore {
             Write-FedLog "Could not re-check Windows updates after installing, so what installed cannot be confirmed: $_" -Level "WARN" -Component "OSUpdate"
         }
         $pendingIds = @($stillPending | ForEach-Object { [string]$_.Id })
+        # Which of the still offered updates Windows' own history says it has
+        # installed since the last boot and is holding for a restart.
+        $heldIds = @($stillPending | Where-Object { $_.AwaitingRestart } | ForEach-Object { [string]$_.Id })
 
         $installedCount = 0
         $remainingCount = 0
+        $awaitingRestart = 0
         foreach ($d in @($outcome.Detail)) {
             if ($recheckFailed) {
                 # Without a re-check there is nothing better than the agent's own
@@ -922,15 +1067,24 @@ function Install-FedOSUpdatesCore {
                 Write-FedLog "Unconfirmed ($why, and the state could not be re-checked): $($d.Title)" -Level "WARN" -Component "OSUpdate"
                 continue
             }
+            $agentSucceeded = ([int]$d.ResultCode -eq 2 -or [int]$d.ResultCode -eq 3)
             if ($pendingIds -contains [string]$d.Id) {
-                $remainingCount++
                 $kind = if ($d.IsDriver) { "driver update" } else { "update" }
                 $why = Get-FedUpdateResultText -Code ([int]$d.ResultCode)
-                if ([int]$d.ResultCode -eq 2 -or [int]$d.ResultCode -eq 3) {
+                if ($agentSucceeded -and ([bool]$d.RebootRequired -or $heldIds -contains [string]$d.Id)) {
+                    # Installed, and offered until the restart that finishes it.
+                    # Still offered was read as still pending, so a run that had
+                    # just put a cumulative update on reported it as not
+                    # installed, and the next run installed it again.
+                    $awaitingRestart++
+                    Write-FedLog "Installed, waiting for a restart to finish ($kind): $($d.Title)" -Level "SUCCESS" -Component "OSUpdate"
+                } elseif ($agentSucceeded) {
                     # Two sources that should agree and do not. Neither is hidden,
                     # because which one is right is not something this can settle.
+                    $remainingCount++
                     Write-FedLog "Still offered by Windows after the run, although the Update Agent reported it $why ($kind): $($d.Title)" -Level "WARN" -Component "OSUpdate"
                 } else {
+                    $remainingCount++
                     Write-FedLog "Still pending after the run ($kind, the Update Agent reported: $why): $($d.Title)" -Level "WARN" -Component "OSUpdate"
                 }
             } else {
@@ -948,12 +1102,13 @@ function Install-FedOSUpdatesCore {
         }
 
         $level = if ($remainingCount -gt 0 -or @($outcome.Missing).Count -gt 0) { "WARN" } else { "SUCCESS" }
-        Write-FedLog "Windows Update installation finished. Installed $installedCount of $($outcome.Attempted) attempted, $remainingCount still pending, RebootRequired: $($outcome.RebootRequired)" -Level $level -Component "OSUpdate"
+        Write-FedLog "Windows Update installation finished. Installed $($installedCount + $awaitingRestart) of $($outcome.Attempted) attempted, $awaitingRestart of them waiting for a restart, $remainingCount still pending, RebootRequired: $($outcome.RebootRequired)" -Level $level -Component "OSUpdate"
         $finalResult = [PSCustomObject]@{
-            SuccessCount   = $installedCount
-            FailCount      = ($remainingCount + @($outcome.Missing).Count)
-            RebootRequired = $outcome.RebootRequired
-            ResultCode     = $outcome.ResultCode
+            SuccessCount    = ($installedCount + $awaitingRestart)
+            FailCount       = ($remainingCount + @($outcome.Missing).Count)
+            AwaitingRestart = $awaitingRestart
+            RebootRequired  = $outcome.RebootRequired
+            ResultCode      = $outcome.ResultCode
         }
         # Written down so an unelevated parent waiting on this process can read
         # what actually happened instead of inferring it from an exit code.

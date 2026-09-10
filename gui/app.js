@@ -700,7 +700,7 @@ function triggerScan({ offerElevation = false } = {}) {
 function updateDashboardUI() {
   if (!state.scanData) return;
 
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted,
+  const { OSUpdateCount, OSAwaitingRestartCount, WingetUpdateCount, StoreUpdateCount, StoreInstalled, WatchdogDrifted,
           OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
 
   // The badges carry state, not identity: green when there is nothing to do,
@@ -708,6 +708,13 @@ function updateDashboardUI() {
   // say the same thing, which read as three unrelated conditions rather than
   // one. Which engine a card belongs to is said by its glyph instead.
   const pending = 'badge-info';
+
+  // Installed already and held by Windows until a restart. Those are not
+  // waiting to be installed, and the badge must not say they are. When every
+  // listed update is one of them the badge is the restart colour, not the
+  // install one.
+  const osHeld = Math.min(OSAwaitingRestartCount || 0, OSUpdateCount || 0);
+  const osBadgeClass = (OSUpdateCount || 0) > 0 ? (osHeld === OSUpdateCount ? 'badge-amber' : pending) : 'badge-green';
 
   const osEl = document.getElementById('osBadge');
   if (osEl) {
@@ -717,16 +724,16 @@ function updateDashboardUI() {
       // This session could not check, but an elevated one already did, and its
       // answer outlived the process that produced it. Reporting that answer with
       // its age beats reporting nothing on a question already answered.
-      osEl.textContent = fedUpdateCountLabel(OSUpdateCount);
-      osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
+      osEl.textContent = fedUpdateCountLabel(OSUpdateCount, osHeld);
+      osEl.className = `badge-pill ${osBadgeClass}`;
       osEl.title = `Checked ${fedRelativeTime(OSScanCheckedAt)}. This window cannot check on its own while the shield is on.`;
     } else if (OSScanBlocked) {
       osEl.textContent = 'Not checked';
       osEl.className = 'badge-pill badge-recommended';
       osEl.title = OSScanReason || 'The Windows Update service is disabled by the shield.';
     } else {
-      osEl.textContent = fedUpdateCountLabel(OSUpdateCount);
-      osEl.className = `badge-pill ${(OSUpdateCount || 0) > 0 ? pending : 'badge-green'}`;
+      osEl.textContent = fedUpdateCountLabel(OSUpdateCount, osHeld);
+      osEl.className = `badge-pill ${osBadgeClass}`;
       osEl.title = '';
     }
   }
@@ -764,7 +771,7 @@ function updateNotificationsUI() {
   if (!notifList || !state.scanData) return;
 
   const items = [];
-  const { OSUpdateCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted,
+  const { OSUpdateCount, OSAwaitingRestartCount, WingetUpdateCount, StoreUpdateCount, RebootSeverity, RebootReasons, RebootPendingFiles, RebootSurvivedBoot, WatchdogDrifted,
           OSScanBlocked, OSScanReason, OSScanCached, OSScanCheckedAt } = state.scanData;
 
   if (WatchdogDrifted) {
@@ -834,13 +841,30 @@ function updateNotificationsUI() {
     });
   }
 
-  if ((!OSScanBlocked || OSScanCached) && (OSUpdateCount || 0) > 0) {
+  // Installed already and held for a restart is not pending. Those are counted
+  // out of the pending line, and when they are all there is, the line says what
+  // they are waiting for rather than asking for them to be installed.
+  const osHeld = Math.min(OSAwaitingRestartCount || 0, OSUpdateCount || 0);
+  const osOpen = (OSUpdateCount || 0) - osHeld;
+  if ((!OSScanBlocked || OSScanCached) && osHeld > 0 && osOpen === 0) {
+    items.push({
+      id: 'os-updates-held',
+      type: 'info',
+      icon: '\u{1F4E6}',
+      title: `${osHeld} OS Update(s) Installed, Restart To Finish`,
+      desc: 'Installed and held by Windows until the next restart. Nothing to install.',
+      actionText: 'Go to OS Updates',
+      actionHandler: "window.navigateTo('osupdates')"
+    });
+  }
+
+  if ((!OSScanBlocked || OSScanCached) && osOpen > 0) {
     items.push({
       id: 'os-updates',
       type: 'warn',
       icon: '📦',
-      title: `${OSUpdateCount} OS Update(s) Pending`,
-      desc: 'Windows quality / security updates ready.',
+      title: `${osOpen} OS Update(s) Pending`,
+      desc: 'Windows quality / security updates ready.' + (osHeld > 0 ? ` ${osHeld} more installed and waiting for a restart.` : ''),
       actionText: 'Go to OS Updates',
       actionHandler: "window.navigateTo('osupdates')"
     });
@@ -1004,9 +1028,13 @@ function renderOSUpdatesTable() {
         : `<span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span>`}</td>
       <td><span class="badge-pill ${u.IsSecurity ? 'badge-danger' : (u.IsDefender ? 'badge-purple' : 'badge-green')}">${u.IsDefender ? 'Defender Intelligence' : (u.IsSecurity ? 'Security Update' : 'Quality Update')}</span></td>
       <td>${u.SizeMB ? u.SizeMB + ' MB' : 'Dynamic CDN'}</td>
-      <td><span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span></td>
+      <td>${u.AwaitingRestart
+        ? '<span class="badge-pill badge-amber">Restart to finish</span>'
+        : `<span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span>`}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" onclick="executeTargetUpdate({ os: true })">Install</button>
+        ${u.AwaitingRestart
+          ? '<span class="badge-pill badge-green" title="Already installed. Windows finishes it at the next restart.">Installed</span>'
+          : '<button class="btn btn-secondary btn-sm" onclick="executeTargetUpdate({ os: true })">Install</button>'}
       </td>
     </tr>
   `).join('');
@@ -1075,8 +1103,10 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
 
 // Polls until the background update reports it has finished. A GET also causes
 // the server to harvest the completed run, so polling is what makes its results
-// available. The ceiling matches the engine's own thirty minute limit.
-async function waitForUpdateCompletion({ intervalMs = 2000, timeoutMs = 1800000 } = {}) {
+// available. The ceiling matches the engine's own: four hours, the figure in
+// FedOSInstallCeilingMinutes, so the window never gives up on a run the engine
+// is still waiting for.
+async function waitForUpdateCompletion({ intervalMs = 2000, timeoutMs = 14400000 } = {}) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -1809,10 +1839,16 @@ function fedAsArray(value) {
 // Not every Windows update has a KB article. Driver and optional updates
 // generally have none, so counting them as KBs named them after an identifier
 // they do not carry and that nothing else on the system would show.
-function fedUpdateCountLabel(n) {
+function fedUpdateCountLabel(n, held) {
   const count = n || 0;
   if (count === 0) return 'No updates pending';
-  return count === 1 ? '1 update pending' : `${count} updates pending`;
+  // Installed already and waiting for a restart is not pending, and a count
+  // that lumped them in asked for what had just been installed to be installed.
+  const waiting = Math.min(held || 0, count);
+  if (waiting === count) return `${waiting} installed, restart to finish`;
+  const open = count - waiting;
+  const base = open === 1 ? '1 update pending' : `${open} updates pending`;
+  return waiting > 0 ? `${base}, ${waiting} restart to finish` : base;
 }
 
 function fedRelativeTime(iso) {

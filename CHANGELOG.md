@@ -5,6 +5,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.45] - 2026-09-10
+
+### Fixed
+
+- **An Update Installed And Waiting For A Restart Was Reported As Not Installed (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`, `gui/app.js`, `fedupdate.ps1`)**:
+  - A cumulative update goes on being offered by Windows until the restart that finishes it. The check after installing took "still offered" to mean "still pending", so a run that had just installed one reported it as not installed, the dashboard went on counting it as an update waiting to be installed, and pressing Install installed it again.
+  - The Update Agent says, per update, whether it succeeded and whether it is holding for a restart, and Windows' own history says what it has installed since the last boot. An update both sources agree is installed and waiting is now reported as exactly that, counted as installed, and not installed a second time. The dashboard badge, the update list, the notification and the text scan all tell "installed, restart to finish" apart from "pending", and an update run that finds only such updates says so without asking for elevation.
+
+- **An Installation Was Given Thirty Minutes (`core/OSUpdateEngine.ps1`, `core/AntiTamperWatchdog.ps1`, `gui/app.js`)**:
+  - After thirty minutes the run stopped waiting, restored the shield, and reported the update as failed. A cumulative update on a fast connection finished with eleven minutes to spare. On a slower connection, or for a feature update, it would have been cut off with the shield restored underneath it while Windows was still installing.
+  - The run now waits in one minute steps for up to four hours, and each step renews the lift record, so the periodic guard sees a run that is alive and leaves the shield down. The record still expires two hours after it was last renewed, so a run that died is caught as before. The desktop window waits as long as the engine does.
+
+- **The Shield Was Reported Restored Before It Was (`core/OSUpdateEngine.ps1`, `core/AntiTamperWatchdog.ps1`)**:
+  - The elevated run wrote down that it had restored the shield while the shield was still lifted, so a restoration that failed would have been recorded as a success. The record is now written by the process that lifted the shield, after it has put it back, and says what actually happened.
+  - The Defender signature step let its own result slip into the run's result, which turned that result into a list of two. The flag saying whether the shield was restored then landed on the list rather than on the result, and the run read back whichever value it happened to find. The step is silenced, the result is checked to be one object, and the unelevated path is now proven against the real module rather than against a copy of it.
+
+- **A WinGet Batch With A Failure In It Was Logged As A Success (`core/WingetEngine.ps1`)**:
+  - WinGet returns one exit code for a whole run, and the run was logged as completed, at success level, whatever that code was. Its output names each package and says how its install ended, so that is now read, and each package is reported on its own.
+  - The commonest refusal is an installer that stops because the application is open. The installer says so in its own log, which WinGet names, and that log is now read. Such a package is reported as waiting for the application to be closed, with what to do about it, rather than as an exit code, and it is not forced a second time against the same open application.
+
+---
+
 ## [1.0.44] - 2026-09-09
 
 ### Fixed

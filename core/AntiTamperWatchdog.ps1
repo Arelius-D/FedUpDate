@@ -338,10 +338,11 @@ function Test-FedWatchdogSuspended {
     .SYNOPSIS
         Whether an update run currently has the shield lifted.
     .DESCRIPTION
-        True only for a recent, unexpired lift. Two hours is longer than any
-        run should take and short enough that a run which crashed without
-        restoring does not leave the guard standing down indefinitely: the next
-        guard tick after expiry re-arms the shield as usual.
+        True only for an unexpired lift. The record expires two hours after it
+        was last renewed, and a run that is still waiting on Windows renews it
+        as it waits, so a slow installation is never cut off by the guard. A
+        run that died stops renewing, and the next guard tick after expiry
+        re-arms the shield as usual.
     #>
     [CmdletBinding()]
     param()
@@ -434,6 +435,25 @@ function Suspend-FedWatchdog {
     return $true
 }
 
+function Update-FedWatchdogSuspension {
+    <#
+    .SYNOPSIS
+        Renews the lift record while a long run is still alive.
+    .DESCRIPTION
+        The record expires two hours after it was last renewed, not two hours
+        after the lift began. A run waiting on Windows renews it as it waits,
+        so the periodic guard never re-arms the shield underneath an
+        installation that is merely slow. Outside a lift there is nothing to
+        renew, and nothing is written.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (-not ($script:FedShieldLiftDepth -gt 0)) { return $false }
+    Set-FedWatchdogState -Values @{ SuspendedAt = (Get-Date).ToString("o") }
+    return $true
+}
+
 function Invoke-FedWithShieldLifted {
     <#
     .SYNOPSIS
@@ -506,8 +526,9 @@ function Enforce-FedWatchdog {
     # would disable the update service underneath a download in progress. The
     # run restores the shield itself when it finishes, or when it fails.
     #
-    # The record expires. A run that died without restoring leaves the flag
-    # behind, and the guard must not honour a stale one forever.
+    # The record expires unless the run keeps renewing it. A run that died
+    # without restoring leaves the flag behind and stops renewing it, and the
+    # guard must not honour a stale one forever.
     if (Test-FedWatchdogSuspended) {
         Write-FedLog "The shield is lifted for an update run in progress. Leaving it lifted; the run restores it." -Level "INFO" -Component "Watchdog"
         return $true
