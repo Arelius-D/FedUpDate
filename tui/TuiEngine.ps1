@@ -143,15 +143,27 @@ function Start-FedTUI {
             "3" {
                 Write-Host "`n`e[36mScanning system across all 3 engines...`e[0m`n"
                 $lastScan = Start-FedScan
+                # As the other two interfaces do: a scan the shield kept from
+                # looking asks for the rights to lift it, instead of telling
+                # somebody to start again elevated.
+                if ($lastScan.OSScanBlocked -and -not (Test-FedElevated)) {
+                    if (Invoke-FedElevatedOSScan) { $lastScan = Start-FedScan }
+                }
                 
                 Write-Host "`n`e[1;37m--- OS Updates Pending ---`e[0m"
                 if ($lastScan.OSScanBlocked -and $lastScan.OSScanCached) {
                     Write-Host " `e[90mChecked $(Get-FedFriendlyAge -Iso $lastScan.OSScanCheckedAt), with elevation. This session cannot check on its own while the shield is on.`e[0m"
                 } elseif ($lastScan.OSScanBlocked) {
                     Write-Host " `e[93mNot checked.`e[0m $($lastScan.OSScanReason)"
-                    Write-Host " `e[90mRun the text interface from an elevated session to check. The shield is restored afterwards.`e[0m"
+                    if (-not (Test-FedElevated)) {
+                        Write-Host " `e[90mElevation was not given, so the shield stayed up and nothing was checked.`e[0m"
+                    }
                 }
-                if ($lastScan.OSUpdates.Count -eq 0) {
+                # Not checked is not "no updates". Saying both at once told
+                # somebody nothing was pending on a check that never ran.
+                if ($lastScan.OSScanBlocked -and -not $lastScan.OSScanCached) {
+                    # Nothing to list, because nothing was checked.
+                } elseif ($lastScan.OSUpdates.Count -eq 0) {
                     Write-Host " `e[32mNo pending Windows OS updates.`e[0m"
                 } else {
                     foreach ($u in $lastScan.OSUpdates) {

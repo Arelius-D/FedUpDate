@@ -133,7 +133,11 @@ function Invoke-FedWithUpdateService {
                 # tell "nothing is pending" apart from "nobody was allowed to
                 # look", because otherwise both are the same empty list.
                 $script:FedOSScanBlocked = $true
-                $script:FedOSScanReason = "The Windows Update service is disabled by the anti-tamper shield, and checking for updates needs elevation."
+                # A fuller reason, naming everything in the way, may already have
+                # been given by the scan. This one names only the service.
+                if (-not $script:FedOSScanReason) {
+                    $script:FedOSScanReason = "The Windows Update service is disabled by the anti-tamper shield, and checking for updates needs elevation."
+                }
                 Write-FedLog "Windows Update service is disabled and this session is not elevated, so no scan could run." -Level "WARN" -Component "OSUpdate"
             } else {
                 Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
@@ -466,6 +470,22 @@ function Get-FedOSUpdates {
     $script:FedOSScanTimedOut = $false
     $results = [System.Collections.Generic.List[PSObject]]::new()
 
+    # Whether a scan from here could see anything at all. An ordinary session
+    # cannot lift the shield, and with any part of it in force Windows Update
+    # either cannot run or reads a catalogue the shield has frozen. Either way
+    # the answer would not be a measurement, so it is not taken as one: the
+    # scan is marked refused, says what is in its way, and the last real check
+    # is reported instead. Inside a lift nothing is in the way, and an elevated
+    # session lifts the shield before it scans, so only an ordinary one is
+    # asked here.
+    if (-not ($script:FedShieldLiftDepth -gt 0) -and -not (Test-FedElevated)) {
+        $inTheWay = @(Get-FedShieldScanBlockers)
+        if ($inTheWay.Count -gt 0) {
+            $script:FedOSScanBlocked = $true
+            $script:FedOSScanReason = "The anti-tamper shield is in the way of checking ($($inTheWay -join ', ')). Checking lifts it for the scan, which needs elevation, and puts it back straight after."
+        }
+    }
+
     try {
         # Inside a lifted shield the search asks Windows Update directly. The
         # shield is lifted precisely so that a real answer is possible, and the
@@ -646,6 +666,12 @@ function Get-FedOSUpdates {
         # Refused here does not mean unknown everywhere. An elevated check may
         # already have answered this, and that answer is better than reporting
         # nothing at all, so long as it is reported as what it is and dated.
+        #
+        # Whatever the search returned from here is not that answer. With the
+        # service available and the shield's policy values in force it reads
+        # the frozen catalogue, and those entries must not be shown, or mixed
+        # in with the recorded check below.
+        $results.Clear()
         $cached = Get-FedOSScanCache
         if ($null -ne $cached -and (Test-FedOSScanCacheCurrent -Cache $cached)) {
             foreach ($up in @($cached.Updates)) { $results.Add($up) }

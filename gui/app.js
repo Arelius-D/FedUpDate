@@ -676,8 +676,13 @@ function triggerScan({ offerElevation = false } = {}) {
             // Asked for by a person, and it could not answer half the question.
             // Saying so and offering the way through belongs here, once, rather
             // than in each button that happens to start a scan.
-            if (offerElevation && state.scanData
-                && state.scanData.OSScanBlocked && !state.scanData.OSScanCached) {
+            //
+            // Whether or not an earlier answer is on record. Once any elevated
+            // check had run there always was one, so the button showed that
+            // answer however old it was and never asked again: it looked like
+            // a scan and was not one. The rescan that follows an elevated check
+            // does not pass offerElevation, so this cannot ask twice.
+            if (offerElevation && state.scanData && state.scanData.OSScanBlocked) {
               await offerElevatedOSScan();
             }
             resolve();

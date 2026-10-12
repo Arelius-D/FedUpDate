@@ -8,6 +8,13 @@
 . "$PSScriptRoot\Config.ps1"
 . "$PSScriptRoot\RollbackEngine.ps1"
 
+# The two settings a lift leaves in place. They stop Windows restarting on its
+# own and play no part in finding or installing updates, so a lift keeps them
+# enforced and a scan does not count them as being in its way. One list, read
+# by both, so the lift and the scan cannot come to disagree about what blocks
+# detection.
+$script:FedLiftKeepsEnforced = @("NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime")
+
 function Get-FedWatchdogStateFile {
     return Join-Path (Get-FedDataDirectory) "watchdog_state.json"
 }
@@ -386,7 +393,7 @@ function Suspend-FedWatchdog {
         return $false
     }
 
-    $keepEnforced = @("NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime")
+    $keepEnforced = $script:FedLiftKeepsEnforced
     $lifted = 0
 
     foreach ($item in @(Get-FedManagedState)) {
@@ -433,6 +440,52 @@ function Suspend-FedWatchdog {
 
     Write-FedLog "Shield lifted for the update run: $lifted setting(s) returned to the Windows default. Reboot protection stays on." -Level "INFO" -Component "Watchdog"
     return $true
+}
+
+function Get-FedShieldScanBlockers {
+    <#
+    .SYNOPSIS
+        Which of the shield's settings are in the way of a Windows Update scan.
+    .DESCRIPTION
+        Every setting a lift would change, except the two reboot guards, as it
+        stands on this machine now. These are what stop a scan from seeing what
+        Windows Update has: the service the Update Agent runs in, the policy
+        values that freeze the update catalogue, and the service behind it.
+
+        A scan counted itself refused only when the update service was
+        disabled. Windows turns that service back on by itself between the
+        guard's runs, and with the policy values still in force the scan then
+        read the frozen catalogue and recorded it as a real answer. Whether a
+        scan can be trusted is a question about all of these, not one of them.
+
+        Only what an ordinary session can read is reported. The three scheduled
+        tasks are not visible without elevation, so they are left to the lift,
+        which puts them back whether or not they were counted here.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $blockers = @()
+    foreach ($item in @(Get-FedManagedState)) {
+        switch ($item.Kind) {
+            "Registry" {
+                if ($script:FedLiftKeepsEnforced -contains $item.ValueName) { continue }
+                if (-not (Test-Path $item.KeyPath)) { continue }
+                $existing = Get-ItemProperty -Path $item.KeyPath -Name $item.ValueName -ErrorAction SilentlyContinue
+                if ($null -ne $existing -and $null -ne $existing.($item.ValueName)) {
+                    $hive = if ($item.KeyPath -like "HKCU:*") { "HKCU" } else { "HKLM" }
+                    $blockers += "$hive $($item.ValueName)"
+                }
+            }
+            "Service" {
+                $svc = Get-Service -Name $item.ServiceName -ErrorAction SilentlyContinue
+                if ($null -ne $svc -and $svc.StartType -eq "Disabled") {
+                    $blockers += "$($item.ServiceName) service disabled"
+                }
+            }
+        }
+    }
+    return $blockers
 }
 
 function Update-FedWatchdogSuspension {
@@ -857,4 +910,4 @@ function Test-FedWatchdogTaskExists {
     return $false
 }
 
-Export-ModuleMember -Function Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Get-FedShieldScanBlockers, Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedWatchdogAudit, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists -ErrorAction SilentlyContinue

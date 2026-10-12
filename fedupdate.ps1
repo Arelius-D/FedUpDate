@@ -137,6 +137,13 @@ if ($FedCommands -notcontains $Command.ToLower()) {
 switch ($Command.ToLower()) {
     "scan" {
         $result = Start-FedScan
+        # A scan the shield kept from looking is not a scan. The window asks for
+        # the rights to lift it, so this does the same instead of telling
+        # somebody to start again elevated. Not from an elevated session: that
+        # is the one doing the asking, and it lifts the shield itself.
+        if ($result.OSScanBlocked -and -not (Test-FedElevated)) {
+            if (Invoke-FedElevatedOSScan) { $result = Start-FedScan }
+        }
         Write-Host "`n`e[1;36m=== FEDUPDATE SCAN SUMMARY ===`e[0m"
         if ($result.OSScanBlocked -and $result.OSScanCached) {
             # This session could not look, but an elevated one already did and
@@ -149,7 +156,9 @@ switch ($Command.ToLower()) {
             # was never taken.
             Write-Host "OS Updates Pending:          not checked"
             Write-Host "  $($result.OSScanReason)"
-            Write-Host "  Run 'fedupdate scan' from an elevated session to check. The shield is restored afterwards."
+            if (-not (Test-FedElevated)) {
+                Write-Host "  Elevation was not given, so the shield stayed up and nothing was checked."
+            }
         } else {
             Write-Host "OS Updates Pending:          $($result.OSUpdateCount)"
         }
@@ -186,6 +195,11 @@ switch ($Command.ToLower()) {
     }
     "check" {
         $result = Start-FedScan
+        # Asks, as a scan does, when somebody is there to answer. Unattended it
+        # reports not checked, as before, instead of waiting on a prompt.
+        if ($result.OSScanBlocked -and -not (Test-FedElevated) -and [Environment]::UserInteractive) {
+            if (Invoke-FedElevatedOSScan) { $result = Start-FedScan }
+        }
         # Not checked is not clean. This used to report the system up to date
         # on the strength of a Windows Update check that never ran, which is
         # every unelevated run while the shield is on.

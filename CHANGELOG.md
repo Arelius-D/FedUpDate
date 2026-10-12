@@ -5,6 +5,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.49] - 2026-10-12
+
+### Fixed
+
+- **A Scan Did Not Scan While The Shield Was On (`core/OSUpdateEngine.ps1`, `core/AntiTamperWatchdog.ps1`, `core/Engine.psm1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`)**:
+  - The shield stops Windows Update in more than one way. The update service is disabled, and the policy values and scheduled tasks behind it freeze the catalogue Windows checks against. Lifting the shield for an update run already put all of that back to the Windows default for the duration. A scan on its own counted itself refused only when the service was disabled.
+  - Windows turns that service back on by itself between the guard's runs. With the policy values still in force, a scan then read the frozen catalogue, reported it as a live result and recorded it over the last real check. A scan is now refused whenever any setting a lift would change is in force, and it says which ones are in the way.
+  - The window asked for elevation only when no earlier check was on record. After the first elevated check there always was one, so the scan button showed that check, however old, and never asked again. It now asks whenever the shield is in the way of the scan.
+  - The command line and the text interface never asked at all. Each said to start again from an elevated session. Both now ask, as the window does, then lift the shield for the scan and put it back straight after. `fedupdate check` asks too when somebody is there to answer, and an unattended run still reports not checked instead of waiting on a prompt.
+  - The text interface said both "Not checked" and "No pending Windows OS updates" for the same refused scan. A scan that never ran no longer reports that nothing is pending.
+  - The two settings that stop Windows restarting on its own stay enforced through a lift and do not count as being in the way. They play no part in finding or installing updates.
+
+---
+
 ## [1.0.48] - 2026-09-10
 
 ### Fixed
