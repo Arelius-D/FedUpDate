@@ -1233,42 +1233,20 @@ async function waitForUpdateCompletion({ intervalMs = 2000, timeoutMs = 14400000
 }
 
 // Update Single / Selected WinGet Packages
+//
+// Both buttons wait for the upgrade the way Update All does. They used to stop
+// waiting after ninety seconds and report the upgrade complete either way, then
+// scan at once. An upgrade still downloading at that point was scanned in the
+// middle of installing, so the list shown afterwards still carried the package
+// being upgraded, and the scan the engine took once it really had finished
+// never reached the window. Nothing is reported finished, taken off the list or
+// scanned for until the run itself says it is done.
 async function updateSinglePackage(packageId) {
-  setDockProgress("Upgrading", `Downloading & upgrading ${packageId}...`, 30, true);
-  try {
-    await fetch(`${API_BASE}/api/update/winget`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ packages: [packageId] })
-    });
-    
-    let pollCount = 0;
-    const pollTimer = setInterval(async () => {
-      pollCount++;
-      try {
-        const res = await fetch(`${API_BASE}/api/update`);
-        const status = await res.json();
-        if (!status.isRunning || pollCount > 90) {
-          clearInterval(pollTimer);
-          setDockProgress("Complete", `Finished upgrading ${packageId}`, 100, false);
-          state.packages = state.packages.filter(p => p.Id !== packageId);
-          if (state.scanData) {
-            state.scanData.WingetUpdateCount = state.packages.length;
-            if (Array.isArray(state.scanData.WingetUpdates)) {
-              state.scanData.WingetUpdates = state.packages;
-            }
-          }
-          renderPackagesTable();
-          updateDashboardUI();
-          await triggerScan();
-        }
-      } catch (e) {
-        if (pollCount > 90) clearInterval(pollTimer);
-      }
-    }, 1000);
-  } catch (err) {
-    setDockProgress("Error", `Failed to upgrade ${packageId}`, 0, false);
-  }
+  await runPackageUpgrade(
+    [packageId],
+    `Downloading & upgrading ${packageId}...`,
+    `The upgrade of ${packageId} has finished. Scanning to see what is still outdated.`
+  );
 }
 
 async function updateSelectedPackages() {
@@ -1277,41 +1255,34 @@ async function updateSelectedPackages() {
     await fedNotify("Select at least one package before upgrading.", { title: "Nothing selected" });
     return;
   }
+  await runPackageUpgrade(
+    selectedIds,
+    `Downloading & upgrading ${selectedIds.length} package(s)...`,
+    `The upgrade of ${selectedIds.length} package(s) has finished. Scanning to see what is still outdated.`
+  );
+}
 
-  setDockProgress("Upgrading", `Downloading & upgrading ${selectedIds.length} package(s)...`, 25, true);
+async function runPackageUpgrade(ids, startText, doneText) {
+  setDockProgress("Upgrading", startText, 25, true);
   try {
     await fetch(`${API_BASE}/api/update/winget`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ packages: selectedIds })
+      body: JSON.stringify({ packages: ids })
     });
-    
-    let pollCount = 0;
-    const pollTimer = setInterval(async () => {
-      pollCount++;
-      try {
-        const res = await fetch(`${API_BASE}/api/update`);
-        const status = await res.json();
-        if (!status.isRunning || pollCount > 90) {
-          clearInterval(pollTimer);
-          setDockProgress("Complete", `Upgraded ${selectedIds.length} package(s).`, 100, false);
-          state.packages = state.packages.filter(p => !selectedIds.includes(p.Id));
-          if (state.scanData) {
-            state.scanData.WingetUpdateCount = state.packages.length;
-            if (Array.isArray(state.scanData.WingetUpdates)) {
-              state.scanData.WingetUpdates = state.packages;
-            }
-          }
-          renderPackagesTable();
-          updateDashboardUI();
-          await triggerScan();
-        }
-      } catch (e) {
-        if (pollCount > 90) clearInterval(pollTimer);
-      }
-    }, 1000);
+
+    const finished = await waitForUpdateCompletion();
+    if (!finished) {
+      setDockProgress("Still running", "The upgrade is taking longer than expected. Scan again once it has finished. See the logs for progress.", 100, false);
+      return;
+    }
+
+    setDockProgress("Complete", doneText, 100, false);
+    // What is still outdated is whatever a scan taken now says. Only now, with
+    // the upgrade finished, does a scan say anything true about it.
+    await triggerScan();
   } catch (err) {
-    setDockProgress("Error", `Failed to upgrade selected packages: ${err.message}`, 0, false);
+    setDockProgress("Error", `Failed to upgrade: ${err.message}`, 0, false);
   }
 }
 

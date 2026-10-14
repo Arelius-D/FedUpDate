@@ -5,6 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.51] - 2026-10-14
+
+### Fixed
+
+- **An Upgraded Package Stayed On The List (`gui/app.js`)**:
+  - The window's buttons for upgrading one package, or the selected ones, stopped waiting after ninety seconds and reported the upgrade complete either way. They then scanned straight away. An upgrade still downloading at that point was scanned in the middle of installing, so the list shown afterwards still carried the package that had just been upgraded, and the scan the engine took once the upgrade really had finished never reached the window.
+  - Both buttons now wait for the upgrade the same way Update All does, for as long as the engine itself would. Nothing is reported finished, taken off the list or scanned for until the run says it is done. An upgrade still going when that wait runs out is reported as still running.
+  - The command line and the text interface were not affected. They wait on the upgrade itself.
+
+---
+
 ## [1.0.50] - 2026-10-14
 
 ### Fixed
