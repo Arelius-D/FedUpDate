@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.50] - 2026-10-14
+
+### Fixed
+
+- **Settings Showed An Update The App Never Looked For (`core/OSUpdateEngine.ps1`, `core/Engine.psm1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/app.js`, `gui/index.html`, `gui/Server.ps1`)**:
+  - Windows offers some updates as optional, and a new version of Windows is offered that way. A search that does not say otherwise asks only for updates Windows deploys as installations, so the scan never asked for the optional ones. Settings listed Windows 11, version 26H2, and every interface here reported nothing pending.
+  - The scan now asks for both and keeps them apart. What an update run installs is counted as pending, exactly as before. What Windows offers as optional is listed on its own: on the Windows Update page, on the dashboard's Windows card, by `fedupdate scan`, and on the text interface's scan screen.
+  - An update run never installs an optional update. Each one is installed on its own, from its own button, with `fedupdate update -UpdateId`, or from the text interface's scan screen, after saying what it is. A new version of Windows is a large download and finishes with a restart, and that is said before it starts.
+  - `fedupdate check` and the pending counts leave optional updates out, so a machine with nothing to install is not reported as having work an update run would never do.
+
+- **A Search Windows Refused Was Reported As Finding Nothing (`core/OSUpdateEngine.ps1`)**:
+  - When Windows Update rejected a search, the scan reported zero pending updates and recorded that over the last real check. A refused search is now reported as not checked, and the last real check stands.
+
+---
+
 ## [1.0.49] - 2026-10-12
 
 ### Fixed

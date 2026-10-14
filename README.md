@@ -189,6 +189,7 @@ fedupdate
 | `fedupdate update -All` | Run every engine, enforce the shield, then evaluate the reboot policy |
 | `fedupdate update -OS` / `-Winget` / `-Store` | One engine only |
 | `fedupdate update -All -WhatIf` | Simulate the whole run without touching anything |
+| `fedupdate update -UpdateId <id>` | Install one Windows update on its own, such as an optional new version of Windows. Update All never installs those |
 | `fedupdate watchdog status` | Whether the boot guard is installed, when it last ran and when it runs next. Needs nothing granting |
 | `fedupdate watchdog audit` | That status, then every managed setting and whether it matches |
 | `fedupdate watchdog enforce` | Re-apply the shield |

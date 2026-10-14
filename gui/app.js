@@ -722,6 +722,21 @@ function updateDashboardUI() {
   const osHeld = Math.min(OSAwaitingRestartCount || 0, OSUpdateCount || 0);
   const osBadgeClass = (OSUpdateCount || 0) > 0 ? (osHeld === OSUpdateCount ? 'badge-amber' : pending) : 'badge-green';
 
+  // Offered by Windows as optional, a new version of Windows among them. Named
+  // on the card so nothing Settings shows is missing here. It is installed from
+  // the Windows Update page, on its own, and never by Update All.
+  const optEl = document.getElementById('osOptionalStatus');
+  if (optEl) {
+    const opt = fedAsArray(state.scanData.OSOptionalUpdates);
+    if (ScanPredatesBoot || (OSScanBlocked && !OSScanCached)) {
+      optEl.textContent = 'Not checked';
+      optEl.title = '';
+    } else {
+      optEl.textContent = opt.length ? opt.map(o => o.Title).join(', ') : 'None offered';
+      optEl.title = opt.length ? 'Not part of Update All. Install it on its own from the Windows Update page.' : '';
+    }
+  }
+
   const osEl = document.getElementById('osBadge');
   if (osEl) {
     // A refused scan has no count. Showing 0 would state a measurement that was
@@ -1069,12 +1084,32 @@ function renderOSUpdatesTable() {
     ? `<tr class="placeholder-row"><td colspan="6">Checked ${escapeHtml(fedRelativeTime(state.scanData.OSScanCheckedAt))}, with elevation. This window cannot check on its own while the shield is on. <button class="btn btn-secondary btn-sm" onclick="runElevatedOSScan()">Check again</button></td></tr>`
     : '';
 
+  // Offered by Windows as optional, a new version of Windows among them. Listed
+  // below the rest, each with its own install button, because Update All never
+  // installs one: it is a choice made on its own.
+  const optional = state.scanData ? fedAsArray(state.scanData.OSOptionalUpdates) : [];
+  const optionalRows = optional.map(u => `
+    <tr>
+      <td style="font-weight: 600;">${escapeHtml(u.Title || 'Windows Update')}</td>
+      <td>${u.ArticleUrl
+        ? `<a class="badge-pill badge-info article-link" href="${escapeHtml(u.ArticleUrl)}" title="Read Microsoft's article for this update">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'Read about it')}</a>`
+        : `<span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span>`}</td>
+      <td><span class="badge-pill badge-recommended" title="Offered by Windows as optional. Update All never installs it.">${u.IsUpgrade ? 'Optional upgrade' : 'Optional'}</span></td>
+      <td>${u.SizeMB ? u.SizeMB + ' MB' : 'Dynamic CDN'}</td>
+      <td><span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span></td>
+      <td><button class="btn btn-secondary btn-sm" data-update-id="${escapeHtml(u.Id)}" data-update-title="${escapeHtml(u.Title)}" data-update-upgrade="${u.IsUpgrade ? 'true' : 'false'}" onclick="installOptionalOSUpdate(this.dataset.updateId, this.dataset.updateTitle, this.dataset.updateUpgrade)">Install</button></td>
+    </tr>
+  `).join('');
+
   if (osUpdates.length === 0) {
+    const clear = optional.length
+      ? 'No pending OS or Defender updates. Windows also offers what is listed below, which Update All does not install.'
+      : 'Windows is fully up-to-date! No pending OS or Defender updates.';
     tbody.innerHTML = cachedNote + `
       <tr class="placeholder-row">
-        <td colspan="6">Windows is fully up-to-date! No pending OS or Defender updates.</td>
+        <td colspan="6">${clear}</td>
       </tr>
-    `;
+    ` + optionalRows;
     return;
   }
 
@@ -1095,11 +1130,24 @@ function renderOSUpdatesTable() {
           : '<button class="btn btn-secondary btn-sm" onclick="executeTargetUpdate({ os: true })">Install</button>'}
       </td>
     </tr>
-  `).join('');
+  `).join('') + optionalRows;
+}
+
+// An update Windows offers as optional is never part of Update All. Installing
+// one is its own decision, and what it involves is said before it starts.
+async function installOptionalOSUpdate(id, title, isUpgrade) {
+  if (!id) return;
+  const upgrade = isUpgrade === true || isUpgrade === 'true';
+  const message = upgrade
+    ? `${title} is a new version of Windows, offered by Windows as optional. It is a large download, can take a long time, and finishes with a restart. Update All never installs it.`
+    : `${title} is offered by Windows as optional. Update All never installs it, so it is installed on its own.`;
+  const ok = await fedConfirm(message, { title: upgrade ? 'Install this version of Windows?' : 'Install this update?', confirmText: 'Install' });
+  if (!ok) return;
+  await executeTargetUpdate({ os: true, updateIds: [id], label: title });
 }
 
 // Execute Targeted or Unified Updates (OS, WinGet, Store, or All)
-async function executeTargetUpdate({ os = false, winget = false, store = false, all = false, isWhatIf = false } = {}) {
+async function executeTargetUpdate({ os = false, winget = false, store = false, all = false, isWhatIf = false, updateIds = null, label = null } = {}) {
   if (state.isExecuting) return;
   state.isExecuting = true;
 
@@ -1117,7 +1165,7 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
   if (includeOS) targets.push("Windows OS");
   if (includeWinget) targets.push("WinGet");
   if (includeStore) targets.push("Microsoft Store");
-  const targetLabel = targets.join(' + ') || "Selected Engines";
+  const targetLabel = label || targets.join(' + ') || "Selected Engines";
 
   const taskTitle = isWhatIf ? `Simulating ${targetLabel} (WhatIf)` : `Updating ${targetLabel}`;
   setDockProgress(taskTitle, `Executing update workflow for ${targetLabel}...`, 20, true);
@@ -1131,6 +1179,9 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
         winget: includeWinget,
         store: includeStore,
         whatif: isWhatIf,
+        // Present only when one Windows update was chosen. The server then
+        // installs that update and nothing else.
+        updateIds: (updateIds && updateIds.length) ? updateIds : undefined,
         rebootPolicy: document.getElementById('rebootPolicySelect')?.value || 'Smart'
       })
     });

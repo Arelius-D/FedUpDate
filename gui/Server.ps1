@@ -514,6 +514,15 @@ try {
                             WhatIf               = $whatIfParam
                             RebootPolicyOverride = $rebootOverride
                         }
+                        # One Windows update chosen by ID: that update and nothing
+                        # else, which is how an optional one is installed.
+                        $chosenIds = @($body.updateIds | Where-Object { $_ } | ForEach-Object { [string]$_ })
+                        if ($chosenIds.Count -gt 0) {
+                            $updateParams.OS = $true
+                            $updateParams.Winget = $false
+                            $updateParams.Store = $false
+                            $updateParams.OSUpdateIds = $chosenIds
+                        }
                         Start-BackgroundUpdate -updateParams $updateParams
                     }
 

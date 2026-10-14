@@ -184,6 +184,18 @@ function Start-FedTUI {
                     }
                 }
 
+                # Offered by Windows as optional, the way Settings offers a new
+                # version of Windows. Shown so nothing Settings shows is missing,
+                # and kept out of Update All, so installing one is a choice.
+                $optional = @($lastScan.OSOptionalUpdates)
+                if ($optional.Count -gt 0) {
+                    Write-Host "`n`e[1;37m--- Optional From Windows ---`e[0m"
+                    foreach ($o in $optional) {
+                        Write-Host " - `e[36m$($o.Title)`e[0m `e[90m[$($o.SizeMB) MB]`e[0m"
+                    }
+                    Write-Host " `e[90mNot part of Update All. Offered to install on its own before this screen closes.`e[0m"
+                }
+
                 Write-Host "`n`e[1;37m--- WinGet Updates Available ---`e[0m"
                 if ($lastScan.WingetUpdates.Count -eq 0) {
                     Write-Host " `e[32mAll WinGet packages are up to date.`e[0m"
@@ -219,6 +231,20 @@ function Start-FedTUI {
                 }
                 if ($lastScan.RebootSurvivedBoot) {
                     Write-Host " `e[93mSome pending items predate the last restart, so restarting again will not clear them.`e[0m"
+                }
+
+                # Each one is its own decision, asked about by name. A new
+                # version of Windows is a large download and finishes with a
+                # restart, so that is said before anything starts.
+                foreach ($o in @($lastScan.OSOptionalUpdates)) {
+                    $what = if ($o.IsUpgrade) { "It is a new version of Windows: a large download that finishes with a restart." } else { "It is offered by Windows as optional." }
+                    Write-Host ""
+                    Write-Host " $what"
+                    Write-Host -NoNewline "`e[1;36mInstall $($o.Title) now? [y/N]: `e[0m"
+                    $answer = Read-Host
+                    if ($answer -match '^(y|yes)$') {
+                        Start-FedUpdate -OS -OSUpdateIds @([string]$o.Id) | Out-Null
+                    }
                 }
 
                 Write-Host "`n`e[90mPress any key to continue...`e[0m"

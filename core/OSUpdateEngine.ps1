@@ -498,7 +498,14 @@ function Get-FedOSUpdates {
                 $srch = $sess.CreateUpdateSearcher()
                 $srch.ServerSelection = 0
                 $srch.Online = $isOnline
-                $sr = $srch.Search("IsInstalled=0 and IsHidden=0")
+                # Both kinds Windows offers. A search that does not say which
+                # asks only for updates Windows deploys as installations, and
+                # leaves out the ones it offers as optional, which is how it
+                # offers a new version of Windows. Settings lists those, so a
+                # scan that never asked for them could not show what Settings
+                # shows. They are told apart below, by each update's own
+                # DeploymentAction.
+                $sr = $srch.Search("IsInstalled=0 and IsHidden=0 and DeploymentAction='Installation' or IsInstalled=0 and IsHidden=0 and DeploymentAction='OptionalInstallation'")
 
                 # Which of the offered updates Windows has already installed
                 # and is holding for a restart. An installed update stays in
@@ -600,12 +607,20 @@ function Get-FedOSUpdates {
                             AwaitingRestart = ($heldForRestart -contains [string]$u.Identity.UpdateID)
                             SupportUrl      = $support
                             BundledKBs      = $bundled
+                            IsUpgrade       = ($cats -contains "Upgrades")
+                            # Offered by Windows as optional. 4 is
+                            # daOptionalInstallation in the Update Agent's own
+                            # type library, read from wuapi.dll.
+                            Optional        = ([int]$u.DeploymentAction -eq 4)
                         }
                     }
                 }
                 return $items
             } catch {
-                return @()
+                # A search Windows refused is not a search that found nothing.
+                # It is handed back as itself, so the scan can say it did not
+                # measure instead of reporting zero.
+                return [PSCustomObject]@{ FedSearchFailed = $true; Message = [string]$_.Exception.Message }
             }
         } -ArgumentList $onlineFlag
 
@@ -620,7 +635,16 @@ function Get-FedOSUpdates {
         Invoke-FedWithUpdateService -Action {
             if ($searchJob | Wait-Job -Timeout $searchTimeout) {
                 $updates = Receive-Job -Job $searchJob
-                if ($updates) {
+                $refused = @($updates | Where-Object { $null -ne $_ -and $_.PSObject.Properties['FedSearchFailed'] })
+                if ($refused.Count -gt 0) {
+                    # Reported as zero pending, a refused search was recorded
+                    # over the last real check. It is handled as a search that
+                    # produced no answer, which is what it is: nothing is
+                    # counted, and the last real check stands.
+                    $script:FedOSScanTimedOut = $true
+                    $script:FedOSScanReason = "Windows Update refused the search ($($refused[0].Message)), so nothing was measured."
+                    Write-FedLog "Windows Update refused the search: $($refused[0].Message). Nothing was measured, so no count is being reported." -Level "WARN" -Component "OSUpdate"
+                } elseif ($updates) {
                     foreach ($up in $updates) {
                         $results.Add($up)
                     }
@@ -723,6 +747,11 @@ function Install-FedOSUpdates {
         [Parameter()]
         [array]$UpdatesToInstall,
 
+        # Windows updates chosen by their ID. These can be ones Windows offers
+        # as optional, which an install of everything pending never takes.
+        [Parameter()]
+        [string[]]$UpdateIds,
+
         [Parameter()]
         [switch]$UpdateDefender = $true,
 
@@ -772,6 +801,9 @@ function Install-FedOSUpdatesCore {
         [array]$UpdatesToInstall,
 
         [Parameter()]
+        [string[]]$UpdateIds,
+
+        [Parameter()]
         [switch]$UpdateDefender = $true,
 
         [Parameter()]
@@ -785,8 +817,16 @@ function Install-FedOSUpdatesCore {
         [void](Update-FedDefenderDefinitions -WhatIf:$WhatIf)
     }
 
-    if ($null -eq $UpdatesToInstall -or $UpdatesToInstall.Count -eq 0) {
-        $UpdatesToInstall = Get-FedOSUpdates -IncludeDefender:$false
+    # Chosen by ID, and only those. This is the one way an update Windows offers
+    # as optional is ever installed: because somebody picked it.
+    $chosenIds = @($UpdateIds | ForEach-Object { ([string]$_).Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($chosenIds.Count -gt 0) {
+        $UpdatesToInstall = @(Get-FedOSUpdates -IncludeDefender:$false | Where-Object { $chosenIds -contains [string]$_.Id })
+    } elseif ($null -eq $UpdatesToInstall -or $UpdatesToInstall.Count -eq 0) {
+        # Everything pending, except what Windows offers as optional. A new
+        # version of Windows is offered that way, and an update run is not a
+        # decision to move to one.
+        $UpdatesToInstall = @(Get-FedOSUpdates -IncludeDefender:$false | Where-Object { -not $_.Optional })
     }
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -826,6 +866,17 @@ function Install-FedOSUpdatesCore {
         # still reported itself complete. When the scan was refused, the
         # decision is handed to an elevated run below, which can both look and
         # install in one go.
+        if ($chosenIds.Count -gt 0 -and (-not $scanState.Blocked -or $isAdmin)) {
+            # Asked for by ID and not offered. Saying there is nothing pending
+            # would answer a question nobody asked.
+            Write-FedLog "The chosen update is not offered by Windows Update now, so nothing was installed: $($chosenIds -join ', ')" -Level "WARN" -Component "OSUpdate"
+            return [PSCustomObject]@{
+                SuccessCount   = 0
+                FailCount      = $chosenIds.Count
+                RebootRequired = $false
+                Error          = "Not offered by Windows Update"
+            }
+        }
         if (-not $scanState.Blocked -or $isAdmin) {
             Write-FedLog "No pending Windows OS updates to install." -Level "INFO" -Component "OSUpdate"
             return [PSCustomObject]@{
@@ -867,9 +918,14 @@ function Install-FedOSUpdatesCore {
         try {
             $scriptRoot = Split-Path -Parent $PSScriptRoot
             $cliScript = Join-Path $scriptRoot "fedupdate.ps1"
+            # Told what was chosen, or the elevated run installs everything
+            # pending in its place.
+            $chosenArg = if ($chosenIds.Count -gt 0) { " -UpdateIds `"$($chosenIds -join ',')`"" } else { "" }
             # A stale record from an earlier run must never be read as this one.
+            # Cleared last, so nothing stands between clearing it and starting
+            # the run that writes the new one.
             Clear-FedOSInstallResult
-            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" update -OS" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$cliScript`" update -OS$chosenArg" -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
             if ($null -ne $p -and $p.ExitCode -eq 0) {
                 # An exit code says the process ran, not what it achieved. This
                 # used to report every requested update as installed on the
@@ -956,7 +1012,7 @@ function Install-FedOSUpdatesCore {
                 # person was looking at was not the list being installed.
                 $searcher.ServerSelection = 0
                 $searcher.Online = $true
-                $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0")
+                $searchResult = $searcher.Search("IsInstalled=0 and IsHidden=0 and DeploymentAction='Installation' or IsInstalled=0 and IsHidden=0 and DeploymentAction='OptionalInstallation'")
 
                 $collection = New-Object -ComObject Microsoft.Update.UpdateColl
                 $missing = @()
@@ -966,6 +1022,10 @@ function Install-FedOSUpdatesCore {
                         $id = $update.Identity.UpdateID
                         $seen += $id
                         if ($TargetIds.Count -gt 0 -and $TargetIds -notcontains $id) { continue }
+                        # Asked for nothing in particular, an install never takes
+                        # what Windows offers as optional. 4 is
+                        # daOptionalInstallation.
+                        if ($TargetIds.Count -eq 0 -and [int]$update.DeploymentAction -eq 4) { continue }
                         # An unaccepted licence stops that update downloading, and
                         # driver updates are the ones that usually carry one.
                         if (-not $update.EulaAccepted) {
@@ -1196,6 +1256,34 @@ function Install-FedOSUpdatesCore {
 }
 
 Export-ModuleMember -Function Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates -ErrorAction SilentlyContinue
+
+function Split-FedOSUpdates {
+    <#
+    .SYNOPSIS
+        What an update run installs, apart from what Windows offers as optional.
+    .DESCRIPTION
+        Windows offers some updates as optional, a new version of Windows among
+        them, and Settings lists them beside the rest. An update run never
+        installs one: that is a choice somebody makes on its own. Counted as
+        pending, they told every interface there was work an update run would
+        never do, and kept check reporting pending until the machine was
+        upgraded.
+
+        An update recorded before updates carried this flag has no Optional
+        field and is counted as pending, as it always was.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [array]$Updates
+    )
+
+    $all = @($Updates | Where-Object { $null -ne $_ })
+    return [PSCustomObject]@{
+        Required = @($all | Where-Object { -not $_.Optional })
+        Optional = @($all | Where-Object { $_.Optional })
+    }
+}
 
 function Get-FedOSScanState {
     <#

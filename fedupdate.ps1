@@ -46,6 +46,13 @@ param(
     [Alias("pkg")]
     [string[]]$Packages,
 
+    # Windows updates to install by ID, comma separated when there are several.
+    # This is how an update Windows offers as optional, such as a new version
+    # of Windows, is installed: on its own, because an update run leaves it be.
+    [Parameter()]
+    [Alias("UpdateId")]
+    [string[]]$UpdateIds,
+
     [Parameter()]
     [Alias("policy")]
     [string]$RebootPolicy,
@@ -165,6 +172,13 @@ switch ($Command.ToLower()) {
         if ($result.OSAwaitingRestartCount -gt 0) {
             Write-Host "  $($result.OSAwaitingRestartCount) of these are installed already and waiting for a restart to finish."
         }
+        # Offered by Windows as optional, the way Settings offers a new version
+        # of Windows. Listed so nothing Settings shows is missing here, and left
+        # out of an update run, so installing one is its own decision.
+        foreach ($o in @($result.OSOptionalUpdates)) {
+            Write-Host "Optional from Windows:       $($o.Title)"
+            Write-Host "  Not part of an update run. To install it on its own: fedupdate update -UpdateId $($o.Id)"
+        }
         Write-Host "WinGet Updates Pending:      $($result.WingetUpdateCount)"
         Write-Host "Microsoft Store Updates:     $($result.StoreUpdateCount)"
         Write-Host "Microsoft Store App:         $(if ($result.StoreInstalled) { "Installed (v$($result.StoreVersion))" } else { "Not Available" })"
@@ -222,12 +236,17 @@ switch ($Command.ToLower()) {
     }
     "update" {
         $rebootPol = if ($NoReboot) { "Never" } elseif ($Shutdown) { "Shutdown" } elseif ($ForceReboot) { "Force" } elseif ($RebootPolicy) { $RebootPolicy } else { $null }
+        # A Windows update chosen by ID is installed on its own, with nothing
+        # else in the run.
+        $chosen = @($UpdateIds | ForEach-Object { ([string]$_).Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ($chosen.Count -gt 0) { $OS = $true; $All = $false; $Winget = $false; $Store = $false }
         $res = Start-FedUpdate `
             -All:($All -or (-not ($OS -or $Winget -or $Store))) `
             -OS:$OS `
             -Winget:$Winget `
             -Store:$Store `
             -WingetPackageIds $Packages `
+            -OSUpdateIds $chosen `
             -RebootPolicyOverride $rebootPol `
             -WhatIf:$isWhatIf
 
@@ -388,6 +407,7 @@ FedUpDate (fedupdate) CLI Help:
   fedupdate update -OS                Update Windows OS & Defender definitions only
   fedupdate update -Winget            Update WinGet packages only
   fedupdate update -Store             Trigger Microsoft Store background sync only
+  fedupdate update -UpdateId <id>     Install one Windows update on its own, such as an optional new version
   fedupdate watchdog status           Is the boot guard installed, when did it last run, when next
   fedupdate watchdog audit            That status, then every managed setting and whether it matches
   fedupdate watchdog enforce          Re-apply the anti-tamper settings
