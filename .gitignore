@@ -13,6 +13,9 @@ data/os_scan_cache.json
 data/os_install_result.json
 data/watchdog_audit.json
 data/watchdog_state.json
+data/watchdog_state.json.lock
+data/update_run.json
+data/update_run.json.*.tmp
 data/state_ledger.json
 *.log
 *.bak

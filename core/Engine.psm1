@@ -98,7 +98,164 @@ function Start-FedScan {
     return $summary
 }
 
+function Get-FedUpdateRunFile {
+    return Join-Path (Get-FedDataDirectory) "update_run.json"
+}
+
+function Get-FedActiveUpdateRun {
+    <#
+    .SYNOPSIS
+        The update run in progress, if its process is still alive.
+    .DESCRIPTION
+        A record left by a process that has gone, or whose number now belongs
+        to another program, is no run at all.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $f = Get-FedUpdateRunFile
+    if (-not (Test-Path $f)) { return $null }
+    try { $r = Get-Content -Path $f -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { return $null }
+    if ($null -eq $r -or -not $r.Pid) { return $null }
+    $p = Get-Process -Id ([int]$r.Pid) -ErrorAction SilentlyContinue
+    if ($null -eq $p -or $p.ProcessName -ne [string]$r.Process) { return $null }
+    return $r
+}
+
+function Enter-FedUpdateRun {
+    <#
+    .SYNOPSIS
+        Claims the one update run there may be at a time, or says who has it.
+    .DESCRIPTION
+        Two runs at once undo each other. Each lifts the shield for Windows
+        Update and puts it back when it is done, and the first to finish put
+        it back while the second was still installing, so the second lost the
+        update service mid-install and its updates failed. A daily schedule
+        and a click two minutes before it were enough. One run proceeds, and
+        any other is refused and says which run it met.
+
+        The claim is a file moved into place, which succeeds for exactly one of
+        two processes claiming at once and is never seen half written. A claim
+        left by a process that has gone is taken over. The elevated half of a
+        run, started by the run itself, carries the run's ID and is let through.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$RunId
+    )
+
+    $f = Get-FedUpdateRunFile
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $active = Get-FedActiveUpdateRun
+        if ($null -ne $active) {
+            if ($RunId -and [string]$active.RunId -eq $RunId) {
+                return [PSCustomObject]@{ Entered = $true; Owner = $false; RunId = $RunId; Active = $active }
+            }
+            return [PSCustomObject]@{ Entered = $false; Owner = $false; RunId = $null; Active = $active }
+        }
+        if (Test-Path $f) { Remove-Item -Path $f -Force -ErrorAction SilentlyContinue }
+
+        $claim = [PSCustomObject]@{
+            RunId     = [guid]::NewGuid().ToString()
+            Pid       = $PID
+            Process   = [string](Get-Process -Id $PID).ProcessName
+            StartedAt = (Get-Date).ToString("o")
+        }
+        $tmp = "$f.$PID.tmp"
+        try {
+            Set-Content -Path $tmp -Value ($claim | ConvertTo-Json -Compress) -Encoding UTF8 -ErrorAction Stop
+            [System.IO.File]::Move($tmp, $f)
+            return [PSCustomObject]@{ Entered = $true; Owner = $true; RunId = $claim.RunId; Active = $claim }
+        } catch {
+            # Somebody claimed it between the look and the claim. Look again.
+            Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return [PSCustomObject]@{ Entered = $false; Owner = $false; RunId = $null; Active = (Get-FedActiveUpdateRun) }
+}
+
+function Exit-FedUpdateRun {
+    <#
+    .SYNOPSIS
+        Gives up the claim, if this process made it and it is still this one.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        $Entry
+    )
+
+    if ($null -eq $Entry -or -not $Entry.Owner) { return }
+    $f = Get-FedUpdateRunFile
+    try {
+        $r = Get-Content -Path $f -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ([string]$r.RunId -eq [string]$Entry.RunId) { Remove-Item -Path $f -Force -ErrorAction SilentlyContinue }
+    } catch { }
+}
+
 function Start-FedUpdate {
+    <#
+    .SYNOPSIS
+        Runs an update, as the only one running.
+    .DESCRIPTION
+        The run itself is Start-FedUpdateCore. This holds the claim around it,
+        and refuses when another run already holds one. A simulation touches
+        nothing and is not held.
+    #>
+    [CmdletBinding()]
+    param(
+        [switch]$OS,
+        [switch]$Winget,
+        [switch]$Store,
+        [switch]$All,
+        [string[]]$WingetPackageIds,
+        [string[]]$OSUpdateIds,
+        [string]$RebootPolicyOverride,
+        [switch]$WhatIf,
+
+        # Carried by the elevated half of a run, so the run's own claim lets
+        # it through.
+        [string]$RunId
+    )
+
+    $core = @{}
+    foreach ($k in $PSBoundParameters.Keys) { if ($k -ne 'RunId') { $core[$k] = $PSBoundParameters[$k] } }
+
+    if ($WhatIf) {
+        $r = Start-FedUpdateCore @core
+        Add-Member -InputObject $r -NotePropertyName Refused -NotePropertyValue $false -Force
+        return $r
+    }
+
+    $entry = Enter-FedUpdateRun -RunId $RunId
+    if (-not $entry.Entered) {
+        $since = try { ([datetime]$entry.Active.StartedAt).ToString("HH:mm") } catch { [string]$entry.Active.StartedAt }
+        Write-FedLog "Another update run has been going since $since (process $($entry.Active.Pid)), so this one was not started. Two at once undo each other's work. That run finishes on its own." -Level "WARN" -Component "Engine"
+        return [PSCustomObject]@{
+            OSResult     = $null
+            WingetResult = $null
+            StoreResult  = $null
+            RebootResult = $null
+            Interrupted  = $false
+            Refused      = $true
+            ActiveSince  = [string]$entry.Active.StartedAt
+            ActivePid    = [int]$entry.Active.Pid
+        }
+    }
+
+    $script:FedUpdateRunId = $entry.RunId
+    try {
+        $r = Start-FedUpdateCore @core
+        Add-Member -InputObject $r -NotePropertyName Refused -NotePropertyValue $false -Force
+        return $r
+    } finally {
+        Exit-FedUpdateRun -Entry $entry
+        $script:FedUpdateRunId = $null
+    }
+}
+
+function Start-FedUpdateCore {
     [CmdletBinding()]
     param(
         [Parameter()]
@@ -144,6 +301,7 @@ function Start-FedUpdate {
         WingetResult = $null
         StoreResult  = $null
         RebootResult = $null
+        Interrupted  = $false
     }
 
     # 1. Windows OS & Defender Updates
@@ -155,6 +313,17 @@ function Start-FedUpdate {
             Install-FedOSUpdates -UpdateIds $chosenOS -UpdateDefender:$false -WhatIf:$WhatIf
         } else {
             Install-FedOSUpdates -UpdateDefender:$true -WhatIf:$WhatIf
+        }
+
+        # The computer slept while this run waited on Windows. Going on to
+        # install more on waking, hours after it was asked for, is not what was
+        # asked for: an Update All clicked one afternoon went on to upgrade
+        # packages the next morning. What is left is left for somebody to start.
+        if ($results.OSResult -and $results.OSResult.PSObject.Properties['Slept'] -and $results.OSResult.Slept) {
+            Write-FedLog "The computer slept while Windows was installing, so the rest of this run was not started. Run it again to carry on." -Level "WARN" -Component "Engine"
+            $runWinget = $false
+            $runStore = $false
+            $results.Interrupted = $true
         }
     }
 
@@ -191,4 +360,4 @@ function Start-FedUpdate {
     return $results
 }
 
-Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedFriendlyAge, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Update-FedConfig, Reset-FedConfig, Get-FedRebootState, Get-FedRebootSignalData, Get-FedRebootVerdict, ConvertFrom-FedPendingFileRename, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedManagedState, Test-FedWatchdogSuspended, Suspend-FedWatchdog, Get-FedShieldScanBlockers, Update-FedWatchdogSuspension, Invoke-FedWithShieldLifted, Save-FedInstallBaseline, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedWindowsPowerShellPath, Test-FedElevated, Set-FedScheduleConfig, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Get-FedOSScanState, Split-FedOSUpdates, Invoke-FedElevatedOSScan, Get-FedOSScanCache, Save-FedOSScanCache, Clear-FedOSScanCache, Test-FedOSScanCacheCurrent, Get-FedOSInstallResult, Save-FedOSInstallResult, Clear-FedOSInstallResult, Get-FedUpdateResultText, Test-FedRestartOwedToWindowsUpdate, Get-FedUpdateArticleUrl, Get-FedUpdateArticleNote, Remove-FedUrlLocale, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Get-FedWingetOutcomes, Test-FedInstallerStoppedForOpenApp, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Set-FedVersionStamp, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate, Get-FedUpdateChannel, Get-FedChannelBranch, Get-FedInstallScriptUrl, Get-FedBranchPosition -ErrorAction SilentlyContinue
+Export-ModuleMember -Function Start-FedScan, Start-FedUpdate, Write-FedLog, Get-FedFriendlyAge, Get-FedLogs, Clear-FedLogs, Get-FedLogDirectory, Get-FedDataDirectory, Get-FedDefaultConfig, Get-FedConfig, Set-FedConfig, Update-FedConfig, Reset-FedConfig, Get-FedRebootState, Get-FedRebootSignalData, Get-FedRebootVerdict, ConvertFrom-FedPendingFileRename, Invoke-FedRebootPolicy, Get-FedWatchdogAudit, Get-FedWatchdogStatus, Format-FedWatchdogStatus, Get-FedWatchdogState, Set-FedWatchdogState, Get-FedManagedState, Test-FedWatchdogSuspended, Suspend-FedWatchdog, Get-FedShieldScanBlockers, Update-FedWatchdogSuspension, Invoke-FedWithShieldLifted, Save-FedInstallBaseline, Enforce-FedWatchdog, Install-FedWatchdogTask, Uninstall-FedWatchdogTask, Test-FedWatchdogTaskExists, Get-FedScheduleTask, Set-FedScheduleTask, Remove-FedScheduleTask, Get-FedWindowsPowerShellPath, Test-FedElevated, Set-FedScheduleConfig, Get-FedActiveUpdateRun, Enter-FedUpdateRun, Exit-FedUpdateRun, Get-FedLiveLiftHolders, Get-FedLedger, Save-FedLedger, New-FedTransaction, Record-FedRegistryChange, Record-FedServiceChange, Record-FedTaskChange, Record-FedFileBackup, Commit-FedTransaction, Restore-FedState, Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Get-FedOSScanState, Split-FedOSUpdates, Invoke-FedElevatedOSScan, Get-FedOSScanCache, Save-FedOSScanCache, Clear-FedOSScanCache, Test-FedOSScanCacheCurrent, Get-FedOSInstallResult, Save-FedOSInstallResult, Clear-FedOSInstallResult, Get-FedUpdateResultText, Test-FedRestartOwedToWindowsUpdate, Get-FedUpdateArticleUrl, Get-FedUpdateArticleNote, Remove-FedUrlLocale, Install-FedOSUpdates, Get-FedWingetPath, Get-FedWingetUpdates, Update-FedWingetPackages, Invoke-FedWingetProcess, Get-FedWingetOutcomes, Test-FedInstallerStoppedForOpenApp, Sync-FedStoreApps, Get-FedStoreStatus, Get-FedVersion, Set-FedVersionStamp, Get-FedLatestRelease, Get-FedVersionStatus, Compare-FedVersion, Get-FedReleaseNotes, Invoke-FedSelfUpdate, Get-FedUpdateChannel, Get-FedChannelBranch, Get-FedInstallScriptUrl, Get-FedBranchPosition -ErrorAction SilentlyContinue

@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.52] - 2026-10-15
+
+### Fixed
+
+- **Two Update Runs At Once Failed Each Other's Updates (`core/Engine.psm1`, `core/AntiTamperWatchdog.ps1`, `core/OSUpdateEngine.ps1`, `fedupdate.ps1`, `tui/TuiEngine.ps1`, `gui/Server.ps1`, `gui/app.js`)**:
+  - Each update run lifts the shield for Windows Update and puts it back when it is done. Nothing stopped a second run starting while one was going, and the first to finish put the shield back while the second was still installing. The second lost the update service mid-install, Windows answered that the service had been shut down, and its updates were reported failed. An Update All clicked two minutes before the daily schedule was enough.
+  - Only one update run goes at a time, whichever interface or schedule starts it. Any other is refused and says which run it met and when that one started. Upgrading single packages from the window counts as a run. The elevated half that a run starts for itself is part of that run and goes through.
+  - The shield also records which processes have it lifted. The last one out puts it back, and one that is still working keeps it down for as long as it is working. A process that has gone holds nothing, so a run that was killed no longer leaves the shield lifted for two hours.
+
+- **A Computer Left Asleep Used Up An Install's Waiting Time, And The Run Carried On By Itself (`core/OSUpdateEngine.ps1`, `core/AntiTamperWatchdog.ps1`, `core/Engine.psm1`)**:
+  - The four hours an install is given were counted by the clock on the wall, so a computer left asleep over an install used them up overnight and the run gave up the moment it woke. The shield's lift, renewed only while awake, also ran out while it slept, and on waking the guard took the update service away from an install still under way.
+  - Only time the computer is awake counts now, and the shield stays lifted for as long as the run holding it is alive. When the computer has slept through an install, the run stops after it instead of going on to upgrade packages on waking, hours after it was asked for, and says why.
+
+---
+
 ## [1.0.51] - 2026-10-14
 
 ### Fixed

@@ -1146,6 +1146,24 @@ async function installOptionalOSUpdate(id, title, isUpgrade) {
   await executeTargetUpdate({ os: true, updateIds: [id], label: title });
 }
 
+// A run that ended without doing what it was asked: refused because another
+// was already going, or stopped because the computer slept through it. Said
+// as what it was. Reporting either as finished claimed work nobody did.
+function fedUpdateNotDone(status) {
+  if (!status) return false;
+  if (status.refused) {
+    const at = status.activeSince ? new Date(status.activeSince) : null;
+    const when = (at && !isNaN(at.getTime())) ? at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'earlier';
+    setDockProgress("Not started", `Another update run has been going since ${when}, so this one was not started. Two at once undo each other's work. That run finishes on its own.`, 100, false);
+    return true;
+  }
+  if (status.interrupted) {
+    setDockProgress("Stopped", "The computer slept while Windows was installing, so the rest of this run was not started. Run it again to carry on.", 100, false);
+    return true;
+  }
+  return false;
+}
+
 // Execute Targeted or Unified Updates (OS, WinGet, Store, or All)
 async function executeTargetUpdate({ os = false, winget = false, store = false, all = false, isWhatIf = false, updateIds = null, label = null } = {}) {
   if (state.isExecuting) return;
@@ -1194,6 +1212,10 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
     // dashboard from pre-update state, so the counts never moved.
     setDockProgress(taskTitle, `Working through ${targetLabel}...`, 45, true);
     const finished = await waitForUpdateCompletion();
+    if (finished && fedUpdateNotDone(state.lastUpdateStatus)) {
+      if (state.lastUpdateStatus.interrupted) { await triggerScan(); await loadLedger(); }
+      return;
+    }
 
     if (finished) {
       setDockProgress("Complete", isWhatIf ? "Simulation completed successfully." : `Finished updating ${targetLabel}.`, 100, false);
@@ -1217,13 +1239,14 @@ async function executeTargetUpdate({ os = false, winget = false, store = false, 
 // is still waiting for.
 async function waitForUpdateCompletion({ intervalMs = 2000, timeoutMs = 14400000 } = {}) {
   const startedAt = Date.now();
+  state.lastUpdateStatus = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     await new Promise(resolve => setTimeout(resolve, intervalMs));
     try {
       const res = await fetch(`${API_BASE}/api/update`);
       const data = await res.json();
-      if (data.isRunning === false) return true;
+      if (data.isRunning === false) { state.lastUpdateStatus = data; return true; }
     } catch (err) {
       // A refused poll is not fatal: the run continues and the next poll retries.
       console.warn("Update poll failed:", err);
@@ -1276,6 +1299,7 @@ async function runPackageUpgrade(ids, startText, doneText) {
       setDockProgress("Still running", "The upgrade is taking longer than expected. Scan again once it has finished. See the logs for progress.", 100, false);
       return;
     }
+    if (fedUpdateNotDone(state.lastUpdateStatus)) return;
 
     setDockProgress("Complete", doneText, 100, false);
     // What is still outdated is whatever a scan taken now says. Only now, with

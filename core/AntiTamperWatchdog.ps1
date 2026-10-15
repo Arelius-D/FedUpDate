@@ -43,30 +43,90 @@ function Set-FedWatchdogState {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]
-        [hashtable]$Values
+        [Parameter()]
+        [hashtable]$Values = @{},
+
+        # This process starts holding the shield lifted, or lets go of it.
+        [Parameter()]
+        [int]$AddHolder = 0,
+
+        [Parameter()]
+        [int]$RemoveHolder = 0
     )
 
-    $current = Get-FedWatchdogState
-    $state = @{
-        Installed       = $false
-        InstalledAt     = $null
-        IntervalMinutes = 15
-        LastRun         = $null
-        LastRunApplied  = 0
-        Suspended       = $false
-        SuspendedAt     = $null
+    # Read, changed and written under one lock. The guard, an update run and a
+    # scan can each write this at once from different processes, and of two
+    # unlocked writes the second drops whatever the first one added.
+    $lock = Lock-FedWatchdogState
+    try {
+        $current = Get-FedWatchdogState
+        $state = @{
+            Installed       = $false
+            InstalledAt     = $null
+            IntervalMinutes = 15
+            LastRun         = $null
+            LastRunApplied  = 0
+            Suspended       = $false
+            SuspendedAt     = $null
+            LiftHolders     = @()
+        }
+        if ($current) {
+            foreach ($k in @($state.Keys)) {
+                if ($null -ne $current.PSObject.Properties[$k]) { $state[$k] = $current.$k }
+            }
+        }
+        foreach ($k in $Values.Keys) { $state[$k] = $Values[$k] }
+
+        if ($AddHolder -or $RemoveHolder) {
+            # Kept to holders that are still running, so one that died is
+            # dropped the next time anybody takes or lets go of the lift.
+            $held = @()
+            foreach ($h in @($state.LiftHolders)) {
+                if ($null -eq $h -or -not $h.Pid) { continue }
+                if ([int]$h.Pid -eq $AddHolder -or [int]$h.Pid -eq $RemoveHolder) { continue }
+                $p = Get-Process -Id ([int]$h.Pid) -ErrorAction SilentlyContinue
+                if ($null -ne $p -and $p.ProcessName -eq [string]$h.Process) { $held += $h }
+            }
+            if ($AddHolder) {
+                $held += [PSCustomObject]@{
+                    Pid     = $AddHolder
+                    Process = [string](Get-Process -Id $AddHolder -ErrorAction SilentlyContinue).ProcessName
+                    Since   = (Get-Date).ToString("o")
+                }
+            }
+            $state.LiftHolders = @($held)
+            $state.Suspended = ($held.Count -gt 0)
+            if (-not $state.Suspended) { $state.SuspendedAt = $null }
+        }
+
+        try {
+            [PSCustomObject]$state | ConvertTo-Json -Depth 5 | Set-Content -Path (Get-FedWatchdogStateFile) -Encoding UTF8 -ErrorAction Stop
+        } catch { }
+    } finally {
+        if ($null -ne $lock) { $lock.Dispose() }
     }
-    if ($current) {
-        foreach ($k in @($state.Keys)) {
-            if ($null -ne $current.PSObject.Properties[$k]) { $state[$k] = $current.$k }
+}
+
+function Lock-FedWatchdogState {
+    <#
+    .SYNOPSIS
+        An exclusive hold on the guard's record, for one read, change and write.
+    .DESCRIPTION
+        A file beside the record, opened with no sharing, so it holds across
+        the user's own session, an elevated one and the SYSTEM guard alike.
+        Waited for briefly and then gone without: the guard must never hang on
+        a lock.
+    #>
+    $path = (Get-FedWatchdogStateFile) + ".lock"
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            return [System.IO.File]::Open($path, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        } catch {
+            Start-Sleep -Milliseconds 50
         }
     }
-    foreach ($k in $Values.Keys) { $state[$k] = $Values[$k] }
-
-    try {
-        [PSCustomObject]$state | ConvertTo-Json -Depth 4 | Set-Content -Path (Get-FedWatchdogStateFile) -Encoding UTF8 -ErrorAction Stop
-    } catch { }
+    return $null
 }
 
 function Get-FedWatchdogStatus {
@@ -343,26 +403,68 @@ function Get-FedWatchdogAudit {
 function Test-FedWatchdogSuspended {
     <#
     .SYNOPSIS
-        Whether an update run currently has the shield lifted.
+        Whether a run or a scan currently has the shield lifted.
     .DESCRIPTION
-        True only for an unexpired lift. The record expires two hours after it
-        was last renewed, and a run that is still waiting on Windows renews it
-        as it waits, so a slow installation is never cut off by the guard. A
-        run that died stops renewing, and the next guard tick after expiry
-        re-arms the shield as usual.
+        Lifted means a process that lifted it is still running, however long
+        that has been, and not lifted the moment the last of them has gone.
+
+        A two hour lease stood in for this, renewed while the run waited. It
+        was renewed only while the computer was awake, so it ran out over an
+        install the computer slept through, and on waking the guard re-armed
+        the shield and took the update service away from an install still
+        under way. It also kept a shield lifted for two hours after a run that
+        had been killed.
+
+        A record written before holders were recorded keeps the lease.
     #>
     [CmdletBinding()]
     param()
 
     $state = Get-FedWatchdogState
-    if ($null -eq $state -or -not $state.Suspended) { return $false }
+    if ($null -eq $state) { return $false }
 
+    if ($null -ne $state.PSObject.Properties['LiftHolders']) {
+        return (@(Get-FedLiveLiftHolders -State $state).Count -gt 0)
+    }
+
+    if (-not $state.Suspended) { return $false }
     try {
         $since = [datetime]::Parse([string]$state.SuspendedAt)
         return ((Get-Date) - $since).TotalHours -lt 2
     } catch {
         return $false
     }
+}
+
+function Get-FedLiveLiftHolders {
+    <#
+    .SYNOPSIS
+        The processes holding the shield lifted that are still running.
+    .DESCRIPTION
+        A holder whose process has gone, or whose number now belongs to some
+        other program, holds nothing.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        $State,
+
+        # Left out, for a process asking whether anybody besides itself still
+        # needs the shield down.
+        [Parameter()]
+        [int]$Except = 0
+    )
+
+    if ($null -eq $State) { $State = Get-FedWatchdogState }
+    if ($null -eq $State -or $null -eq $State.PSObject.Properties['LiftHolders']) { return @() }
+    $live = @()
+    foreach ($h in @($State.LiftHolders)) {
+        if ($null -eq $h -or -not $h.Pid) { continue }
+        if ([int]$h.Pid -eq $Except) { continue }
+        $p = Get-Process -Id ([int]$h.Pid) -ErrorAction SilentlyContinue
+        if ($null -ne $p -and $p.ProcessName -eq [string]$h.Process) { $live += $h }
+    }
+    return $live
 }
 
 function Suspend-FedWatchdog {
@@ -392,6 +494,10 @@ function Suspend-FedWatchdog {
         Write-FedLog "The shield cannot be lifted without elevation." -Level "WARN" -Component "Watchdog"
         return $false
     }
+
+    # Taken before anything is lifted. A guard tick between lifting and saying
+    # so would see a lift nobody holds and put the shield straight back.
+    Set-FedWatchdogState -AddHolder $PID -Values @{ SuspendedAt = (Get-Date).ToString("o") }
 
     $keepEnforced = $script:FedLiftKeepsEnforced
     $lifted = 0
@@ -431,11 +537,6 @@ function Suspend-FedWatchdog {
         } catch {
             Write-FedLog "Could not lift $($item.Kind) $($item.ValueName)$($item.ServiceName)$($item.TaskName): $_" -Level "WARN" -Component "Watchdog"
         }
-    }
-
-    Set-FedWatchdogState -Values @{
-        Suspended   = $true
-        SuspendedAt = (Get-Date).ToString("o")
     }
 
     Write-FedLog "Shield lifted for the update run: $lifted setting(s) returned to the Windows default. Reboot protection stays on." -Level "INFO" -Component "Watchdog"
@@ -548,18 +649,29 @@ function Invoke-FedWithShieldLifted {
         return & $Action
     } finally {
         $script:FedShieldLiftDepth = 0
-        # Cleared before enforcing, or enforcement would see the lift and
-        # decline to do anything. Cleared even if enforcement then fails, so
-        # the periodic guard becomes the backstop rather than a stale flag
-        # standing it down.
-        Set-FedWatchdogState -Values @{ Suspended = $false; SuspendedAt = $null }
-        try {
-            Write-FedLog "Restoring the shield after the update run." -Level "INFO" -Component "Watchdog"
-            Enforce-FedWatchdog | Out-Null
+        # This process lets go first, or enforcement would see its own hold and
+        # decline. Whether the shield goes back is then a question about
+        # everybody else. A second run or a scan that lifted it and is still
+        # working needs the update service where it is: putting the shield back
+        # here is what took the service away from a second run mid-install and
+        # failed its updates. The last one out puts it back.
+        Set-FedWatchdogState -RemoveHolder $PID
+        $others = @(Get-FedLiveLiftHolders)
+        if ($others.Count -gt 0) {
+            Write-FedLog "Another run still has the shield lifted (process $(@($others | ForEach-Object { $_.Pid }) -join ', ')), so it is left lifted for that one, which puts it back when it finishes." -Level "INFO" -Component "Watchdog"
+            # Nothing more for this run to do about the shield. Reporting it as
+            # not restored would have the caller enforce again, under the run
+            # that still needs it down.
             $script:FedShieldRestored = $true
-        } catch {
-            $script:FedShieldRestored = $false
-            Write-FedLog "The shield could not be restored after the update run: $_ Run the watchdog enforce command. The periodic guard will also re-arm it." -Level "ERROR" -Component "Watchdog"
+        } else {
+            try {
+                Write-FedLog "Restoring the shield after the update run." -Level "INFO" -Component "Watchdog"
+                Enforce-FedWatchdog | Out-Null
+                $script:FedShieldRestored = $true
+            } catch {
+                $script:FedShieldRestored = $false
+                Write-FedLog "The shield could not be restored after the update run: $_ Run the watchdog enforce command. The periodic guard will also re-arm it." -Level "ERROR" -Component "Watchdog"
+            }
         }
     }
 }

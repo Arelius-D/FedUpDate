@@ -921,6 +921,9 @@ function Install-FedOSUpdatesCore {
             # Told what was chosen, or the elevated run installs everything
             # pending in its place.
             $chosenArg = if ($chosenIds.Count -gt 0) { " -UpdateIds `"$($chosenIds -join ',')`"" } else { "" }
+            # And which run it is the elevated half of, so the claim this run
+            # already holds lets it through instead of refusing it as a second.
+            if ($script:FedUpdateRunId) { $chosenArg += " -RunId `"$($script:FedUpdateRunId)`"" }
             # A stale record from an earlier run must never be read as this one.
             # Cleared last, so nothing stands between clearing it and starting
             # the run that writes the new one.
@@ -966,6 +969,7 @@ function Install-FedOSUpdatesCore {
                     RebootRequired  = [bool]$rebootState.IsRebootRequired
                     Error           = $childResult.Error
                     ShieldRestored  = [bool]$childResult.ShieldRestored
+                    Slept           = [bool]$childResult.Slept
                 }
             }
             Write-FedLog "Elevated Windows Update installation did not complete (exit code $($p.ExitCode))." -Level "WARN" -Component "OSUpdate"
@@ -1103,27 +1107,38 @@ function Install-FedOSUpdatesCore {
         # minutes of it on a fast connection. On a slow one it would have been
         # cut off, the shield restored underneath the install, and the update
         # reported as failed while Windows was still installing it.
+        #
+        # Counted in time the computer was awake. Measured by the clock on the
+        # wall, a lid closed over an install used up the whole allowance
+        # overnight, and the run gave up the moment the computer woke. That it
+        # slept is kept, so the run does not go on to start more on waking.
         $ceiling = [timespan]::FromMinutes($script:FedOSInstallCeilingMinutes)
-        $started = Get-Date
-        $lastNote = $started
+        $awake = [timespan]::Zero
+        $slept = $false
+        $lastTick = Get-Date
+        $lastNote = [timespan]::Zero
         $finished = $false
         while (-not $finished) {
             $finished = [bool]($installJob | Wait-Job -Timeout 60)
             if ($finished) { break }
             [void](Update-FedWatchdogSuspension)
-            $elapsed = (Get-Date) - $started
-            if ($elapsed -gt $ceiling) { break }
-            if (((Get-Date) - $lastNote).TotalMinutes -ge 10) {
-                $lastNote = Get-Date
-                Write-FedLog "Windows Update is still working after $([int]$elapsed.TotalMinutes) minutes. The shield stays lifted until it finishes." -Level "INFO" -Component "OSUpdate"
+            $now = Get-Date
+            $step = Measure-FedAwakeStep -Step ($now - $lastTick)
+            $lastTick = $now
+            $awake += $step.Awake
+            if ($step.Slept) { $slept = $true }
+            if ($awake -gt $ceiling) { break }
+            if (($awake - $lastNote).TotalMinutes -ge 10) {
+                $lastNote = $awake
+                Write-FedLog "Windows Update is still working after $([int]$awake.TotalMinutes) minutes. The shield stays lifted until it finishes." -Level "INFO" -Component "OSUpdate"
             }
         }
 
         if (-not $finished) {
             Stop-Job -Job $installJob -ErrorAction SilentlyContinue
             Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
-            Write-FedLog "Windows Update has not finished after $($script:FedOSInstallCeilingMinutes) minutes, so this run stops waiting for it. Windows may still be installing on its own; check the system's update screen before running again." -Level "ERROR" -Component "OSUpdate"
-            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = "Timed out after $($script:FedOSInstallCeilingMinutes) minutes" }
+            Write-FedLog "Windows Update has not finished after $($script:FedOSInstallCeilingMinutes) minutes of the computer being awake, so this run stops waiting for it. Windows may still be installing on its own; check the system's update screen before running again." -Level "ERROR" -Component "OSUpdate"
+            return [PSCustomObject]@{ SuccessCount = 0; FailCount = $UpdatesToInstall.Count; RebootRequired = $false; Error = "Timed out after $($script:FedOSInstallCeilingMinutes) minutes awake"; Slept = [bool]$slept }
         }
 
         $outcome = Receive-Job -Job $installJob
@@ -1247,6 +1262,7 @@ function Install-FedOSUpdatesCore {
             AwaitingRestart = $awaitingRestart
             RebootRequired  = $outcome.RebootRequired
             ResultCode      = $outcome.ResultCode
+            Slept           = [bool]$slept
         }
         # Written down so an unelevated parent waiting on this process can read
         # what actually happened instead of inferring it from an exit code.
@@ -1256,6 +1272,26 @@ function Install-FedOSUpdatesCore {
 }
 
 Export-ModuleMember -Function Get-FedDefenderStatus, Update-FedDefenderDefinitions, Get-FedOSUpdates, Install-FedOSUpdates -ErrorAction SilentlyContinue
+
+function Measure-FedAwakeStep {
+    <#
+    .SYNOPSIS
+        How much of one wait the computer was actually awake for.
+    .DESCRIPTION
+        Each wait asks for a minute. One that took far longer than that was the
+        computer asleep, and counts only as the minute it asked for. A clock
+        set back counts as nothing.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [timespan]$Step
+    )
+
+    if ($Step -lt [timespan]::Zero) { return [PSCustomObject]@{ Awake = [timespan]::Zero; Slept = $false } }
+    if ($Step.TotalMinutes -gt 5) { return [PSCustomObject]@{ Awake = [timespan]::FromMinutes(1); Slept = $true } }
+    return [PSCustomObject]@{ Awake = $Step; Slept = $false }
+}
 
 function Split-FedOSUpdates {
     <#

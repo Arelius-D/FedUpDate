@@ -113,6 +113,13 @@ function Start-FedTUI {
             "1" {
                 Write-Host "`n`e[33mExecuting Unified Update All...`e[0m`n"
                 $updateRun = Start-FedUpdate -All
+                if ($updateRun.Refused) {
+                    $since = try { ([datetime]$updateRun.ActiveSince).ToString("HH:mm") } catch { [string]$updateRun.ActiveSince }
+                    Write-Host "`n`e[93mAnother update run has been going since $since (process $($updateRun.ActivePid)), so this one was not started. Two at once undo each other's work. That run finishes on its own.`e[0m"
+                }
+                if ($updateRun.Interrupted) {
+                    Write-Host "`n`e[93mThe computer slept while Windows was installing, so the rest of this run was not started. Run it again to carry on.`e[0m"
+                }
 
                 # The engine returns rather than asking, so the asking happens here.
                 if ($updateRun.RebootResult.Action -eq "PromptRequired") {

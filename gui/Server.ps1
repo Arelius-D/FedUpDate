@@ -309,6 +309,7 @@ function Start-BackgroundUpdate {
     param($updateParams)
     if ($global:IsUpdateRunning) { return }
     $global:IsUpdateRunning = $true
+    $global:LastUpdateOutcome = $null
     
     try {
         $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
@@ -322,7 +323,14 @@ function Start-BackgroundUpdate {
             param($root, $params)
             Import-Module (Join-Path $root "core\Engine.psm1") -Force -DisableNameChecking
             if ($params.ContainsKey("Packages") -and $params.Packages -and $params.Packages.Count -gt 0) {
-                $upRes = Update-FedWingetPackages -PackageIds @($params.Packages)
+                # Held as an update run like any other, so it cannot run into one.
+                $entry = Enter-FedUpdateRun
+                if ($entry.Entered) {
+                    try { $upRes = Update-FedWingetPackages -PackageIds @($params.Packages) } finally { Exit-FedUpdateRun -Entry $entry }
+                } else {
+                    Write-FedLog "Another update run has been going since $($entry.Active.StartedAt) (process $($entry.Active.Pid)), so this upgrade was not started. That run finishes on its own." -Level "WARN" -Component "Engine"
+                    $upRes = [PSCustomObject]@{ Refused = $true; ActiveSince = [string]$entry.Active.StartedAt; ActivePid = [int]$entry.Active.Pid }
+                }
             } else {
                 $upRes = Start-FedUpdate @params
             }
@@ -487,6 +495,9 @@ try {
                                     if ($null -ne $item -and $null -ne $item.Scan) {
                                         $global:LastScanData = $item.Scan
                                     }
+                                    if ($null -ne $item -and $null -ne $item.Update) {
+                                        $global:LastUpdateOutcome = $item.Update
+                                    }
                                 }
                             }
                         } catch {
@@ -526,7 +537,15 @@ try {
                         Start-BackgroundUpdate -updateParams $updateParams
                     }
 
-                    Send-FedResponse -Context $context -Content @{ isRunning = [bool]$global:IsUpdateRunning } -ContentType "application/json"
+                    # Whether the run that just ended was refused, or stopped
+                    # because the computer slept, so the window says what
+                    # happened instead of reporting it finished.
+                    $o = $global:LastUpdateOutcome
+                    $known = ($null -ne $o -and $o -isnot [array])
+                    $refused = [bool]($known -and $null -ne $o.PSObject.Properties['Refused'] -and $o.Refused)
+                    $interrupted = [bool]($known -and $null -ne $o.PSObject.Properties['Interrupted'] -and $o.Interrupted)
+                    $activeSince = if ($refused) { [string]$o.ActiveSince } else { "" }
+                    Send-FedResponse -Context $context -Content @{ isRunning = [bool]$global:IsUpdateRunning; refused = $refused; interrupted = $interrupted; activeSince = $activeSince } -ContentType "application/json"
                 }
                 "/api/update/winget" {
                     $body = Read-RequestBody -Context $context

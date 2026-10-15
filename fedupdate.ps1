@@ -53,6 +53,11 @@ param(
     [Alias("UpdateId")]
     [string[]]$UpdateIds,
 
+    # Set only by an update run when it starts its own elevated half, so that
+    # half is let through instead of being refused as a second run.
+    [Parameter()]
+    [string]$RunId,
+
     [Parameter()]
     [Alias("policy")]
     [string]$RebootPolicy,
@@ -248,7 +253,17 @@ switch ($Command.ToLower()) {
             -WingetPackageIds $Packages `
             -OSUpdateIds $chosen `
             -RebootPolicyOverride $rebootPol `
+            -RunId $RunId `
             -WhatIf:$isWhatIf
+
+        if ($res.Refused) {
+            $since = try { ([datetime]$res.ActiveSince).ToString("HH:mm") } catch { [string]$res.ActiveSince }
+            Write-Host "[!] Another update run has been going since $since (process $($res.ActivePid)), so this one was not started. Two at once undo each other's work. That run finishes on its own." -ForegroundColor Yellow
+            exit 3
+        }
+        if ($res.Interrupted) {
+            Write-Host "[!] The computer slept while Windows was installing, so the rest of this run was not started. Run it again to carry on." -ForegroundColor Yellow
+        }
 
         # 'Prompt' deliberately leaves the asking to the interface, because the
         # engine has no console of its own. A non interactive session is left
