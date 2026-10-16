@@ -179,10 +179,16 @@ switch ($Command.ToLower()) {
         }
         # Offered by Windows as optional, the way Settings offers a new version
         # of Windows. Listed so nothing Settings shows is missing here, and left
-        # out of an update run, so installing one is its own decision.
+        # out of an update run, so installing one is its own decision. One
+        # already installed stays offered until the restart that finishes it,
+        # and is said to be installed rather than given the way to install it.
         foreach ($o in @($result.OSOptionalUpdates)) {
             Write-Host "Optional from Windows:       $($o.Title)"
-            Write-Host "  Not part of an update run. To install it on its own: fedupdate update -UpdateId $($o.Id)"
+            if ($o.AwaitingRestart) {
+                Write-Host "  Installed already and waiting for a restart to finish."
+            } else {
+                Write-Host "  Not part of an update run. To install it on its own: fedupdate update -UpdateId $($o.Id)"
+            }
         }
         Write-Host "WinGet Updates Pending:      $($result.WingetUpdateCount)"
         Write-Host "Microsoft Store Updates:     $($result.StoreUpdateCount)"

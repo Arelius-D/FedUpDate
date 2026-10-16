@@ -198,9 +198,12 @@ function Start-FedTUI {
                 if ($optional.Count -gt 0) {
                     Write-Host "`n`e[1;37m--- Optional From Windows ---`e[0m"
                     foreach ($o in $optional) {
-                        Write-Host " - `e[36m$($o.Title)`e[0m `e[90m[$($o.SizeMB) MB]`e[0m"
+                        $held = if ($o.AwaitingRestart) { " `e[33minstalled, restart to finish`e[0m" } else { "" }
+                        Write-Host " - `e[36m$($o.Title)`e[0m `e[90m[$($o.SizeMB) MB]`e[0m$held"
                     }
-                    Write-Host " `e[90mNot part of Update All. Offered to install on its own before this screen closes.`e[0m"
+                    if (@($optional | Where-Object { -not $_.AwaitingRestart }).Count -gt 0) {
+                        Write-Host " `e[90mNot part of Update All. Offered to install on its own before this screen closes.`e[0m"
+                    }
                 }
 
                 Write-Host "`n`e[1;37m--- WinGet Updates Available ---`e[0m"
@@ -242,8 +245,10 @@ function Start-FedTUI {
 
                 # Each one is its own decision, asked about by name. A new
                 # version of Windows is a large download and finishes with a
-                # restart, so that is said before anything starts.
+                # restart, so that is said before anything starts. One already
+                # installed and waiting for its restart is not asked about.
                 foreach ($o in @($lastScan.OSOptionalUpdates)) {
+                    if ($o.AwaitingRestart) { continue }
                     $what = if ($o.IsUpgrade) { "It is a new version of Windows: a large download that finishes with a restart." } else { "It is offered by Windows as optional." }
                     Write-Host ""
                     Write-Host " $what"

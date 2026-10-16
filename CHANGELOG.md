@@ -5,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.53] - 2026-10-16
+
+### Fixed
+
+- **An Optional Update Already Installed Was Still Offered For Install (`gui/app.js`, `fedupdate.ps1`, `tui/TuiEngine.ps1`)**:
+  - Windows goes on offering an update it has installed until the restart that finishes it. The scan already knew which updates those were, and the Windows Update page said so for the monthly ones. The rows for what Windows offers as optional, added in 1.0.50, never read it. After Windows 11, version 26H2 had been installed from its own button, the window still listed it with an Install button, the dashboard card named it as if it were waiting to be installed, `fedupdate scan` gave the command to install it, and the text interface's scan screen asked whether to install it.
+  - An optional update that is installed and waiting for its restart is now shown as installed in every interface, with the restart that finishes it named, and none of them offers to install it again. Choosing it anyway was already harmless: the run found it installed and left it alone.
+
+---
+
 ## [1.0.52] - 2026-10-15
 
 ### Fixed

@@ -732,8 +732,14 @@ function updateDashboardUI() {
       optEl.textContent = 'Not checked';
       optEl.title = '';
     } else {
-      optEl.textContent = opt.length ? opt.map(o => o.Title).join(', ') : 'None offered';
-      optEl.title = opt.length ? 'Not part of Update All. Install it on its own from the Windows Update page.' : '';
+      // One Windows has installed and holds for a restart stays offered until
+      // that restart. Named plainly it read as still to be installed.
+      const named = o => o.AwaitingRestart ? `${o.Title} (installed, restart to finish)` : o.Title;
+      optEl.textContent = opt.length ? opt.map(named).join(', ') : 'None offered';
+      optEl.title = !opt.length ? ''
+        : (opt.every(o => o.AwaitingRestart)
+          ? 'Already installed. Windows finishes it at the next restart.'
+          : 'Not part of Update All. Install it on its own from the Windows Update page.');
     }
   }
 
@@ -1086,7 +1092,10 @@ function renderOSUpdatesTable() {
 
   // Offered by Windows as optional, a new version of Windows among them. Listed
   // below the rest, each with its own install button, because Update All never
-  // installs one: it is a choice made on its own.
+  // installs one: it is a choice made on its own. One already installed and
+  // held for a restart is said to be that, the same as the rows above. Windows
+  // goes on offering it until the restart, and an Install button on it asked
+  // for an install that had already been done.
   const optional = state.scanData ? fedAsArray(state.scanData.OSOptionalUpdates) : [];
   const optionalRows = optional.map(u => `
     <tr>
@@ -1096,15 +1105,21 @@ function renderOSUpdatesTable() {
         : `<span class="badge-pill badge-info">${escapeHtml((u.KB && u.KB !== 'N/A') ? u.KB : 'No KB')}</span>`}</td>
       <td><span class="badge-pill badge-recommended" title="Offered by Windows as optional. Update All never installs it.">${u.IsUpgrade ? 'Optional upgrade' : 'Optional'}</span></td>
       <td>${u.SizeMB ? u.SizeMB + ' MB' : 'Dynamic CDN'}</td>
-      <td><span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span></td>
-      <td><button class="btn btn-secondary btn-sm" data-update-id="${escapeHtml(u.Id)}" data-update-title="${escapeHtml(u.Title)}" data-update-upgrade="${u.IsUpgrade ? 'true' : 'false'}" onclick="installOptionalOSUpdate(this.dataset.updateId, this.dataset.updateTitle, this.dataset.updateUpgrade)">Install</button></td>
+      <td>${u.AwaitingRestart
+        ? '<span class="badge-pill badge-amber">Restart to finish</span>'
+        : `<span class="badge-pill ${u.RebootRequired ? 'badge-amber' : 'badge-green'}">${u.RebootRequired ? 'Reboot Required' : 'Zero Reboot'}</span>`}</td>
+      <td>${u.AwaitingRestart
+        ? '<span class="badge-pill badge-green" title="Already installed. Windows finishes it at the next restart.">Installed</span>'
+        : `<button class="btn btn-secondary btn-sm" data-update-id="${escapeHtml(u.Id)}" data-update-title="${escapeHtml(u.Title)}" data-update-upgrade="${u.IsUpgrade ? 'true' : 'false'}" onclick="installOptionalOSUpdate(this.dataset.updateId, this.dataset.updateTitle, this.dataset.updateUpgrade)">Install</button>`}</td>
     </tr>
   `).join('');
 
   if (osUpdates.length === 0) {
-    const clear = optional.length
-      ? 'No pending OS or Defender updates. Windows also offers what is listed below, which Update All does not install.'
-      : 'Windows is fully up-to-date! No pending OS or Defender updates.';
+    const clear = !optional.length
+      ? 'Windows is fully up-to-date! No pending OS or Defender updates.'
+      : (optional.every(u => u.AwaitingRestart)
+        ? 'No pending OS or Defender updates. What is listed below is installed, and Windows finishes it at the next restart.'
+        : 'No pending OS or Defender updates. Windows also offers what is listed below, which Update All does not install.');
     tbody.innerHTML = cachedNote + `
       <tr class="placeholder-row">
         <td colspan="6">${clear}</td>
